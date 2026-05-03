@@ -23,7 +23,7 @@ const seedState = {
   ideas: [],
   news: [],
   snapshots: [],
-  demoDataCleared: true
+  demoCleanupVersion: 2
 };
 
 let state = loadState();
@@ -56,7 +56,7 @@ function loadState() {
 }
 
 function migrateState(nextState) {
-  if (!nextState.demoDataCleared) {
+  if (Number(nextState.demoCleanupVersion || 0) < 2) {
     const demoSymbols = new Set(["NVDA", "AAPL", "VOO", "BTC", "TSLA"]);
     const hasDemoAssets = Array.isArray(nextState.assets) && nextState.assets.some(asset => demoSymbols.has(asset.symbol));
     const hasDemoTradeIds = Array.isArray(nextState.trades) && nextState.trades.some(trade => /^t[1-7]$/.test(String(trade.id)));
@@ -70,7 +70,8 @@ function migrateState(nextState) {
       nextState.selectedTaskId = nextState.tasks[0]?.id || null;
       nextState.selectedIdeaId = nextState.ideas[0]?.id || null;
     }
-    nextState.demoDataCleared = true;
+    delete nextState.demoDataCleared;
+    nextState.demoCleanupVersion = 2;
   }
   return nextState;
 }
@@ -433,7 +434,7 @@ function renderAssetDetail(pos) {
     <div class="lot-row">
       <div><div>${lot.remaining.toFixed(pos.type === "crypto" ? 5 : 2)} units</div><div class="muted">Bought ${lot.date}</div></div>
       <div class="price-block"><div>${money2(lot.unitCost)}</div><div class="muted">${money(lot.remaining * lot.unitCost)}</div></div>
-    </div>`).join("") || empty("No open lots");
+    </div>`).join("") || `<div class="empty">No open lots</div><button class="btn btn-primary full" data-open-modal="tradeModal">Add Lot</button>`;
 
   const previewQty = Math.min(pos.quantity, pos.quantity * .2 || 0);
   const tax = estimateTax({ symbol: pos.symbol, quantity: previewQty, price: pos.price, date: todayISO(), shortRate: 24, longRate: 15 });
@@ -662,6 +663,10 @@ function switchTab(tab) {
 function openModal(id) {
   document.getElementById(id).classList.add("open");
   document.getElementById(id).setAttribute("aria-hidden", "false");
+  if (id === "tradeModal" && state.selectedSymbol) {
+    const tradeAsset = document.getElementById("tradeAsset");
+    if (tradeAsset) tradeAsset.value = state.selectedSymbol;
+  }
 }
 
 function closeModals() {
@@ -747,9 +752,11 @@ async function lookupAssetMarketData() {
 
 function recordTrade(form) {
   const data = Object.fromEntries(new FormData(form).entries());
+  const symbol = data.symbol || state.selectedSymbol;
+  if (!symbol) return;
   state.trades.push({
     id: uid(),
-    symbol: data.symbol,
+    symbol,
     action: data.action,
     quantity: Number(data.quantity || 0),
     price: Number(data.price || 0),
@@ -757,7 +764,7 @@ function recordTrade(form) {
     date: data.date,
     memo: data.memo.trim()
   });
-  state.selectedSymbol = data.symbol;
+  state.selectedSymbol = symbol;
 }
 
 function addTask(form) {
