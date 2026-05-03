@@ -39,6 +39,25 @@ button, input, textarea, select {
 
 button { color: inherit; }
 
+a {
+  color: var(--accent);
+  text-decoration: none;
+  text-underline-offset: 3px;
+  transition: color .15s, text-decoration-color .15s;
+}
+
+a:hover {
+  color: var(--bright);
+  text-decoration: underline;
+  text-decoration-color: rgba(232, 213, 176, .65);
+}
+
+a:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
 .shell {
   display: grid;
   grid-template-rows: 52px 1fr;
@@ -675,6 +694,25 @@ button { color: inherit; }
   color: var(--text);
   font-size: 16px;
   line-height: 1.45;
+}
+
+.news-title a {
+  color: var(--text);
+  display: inline;
+}
+
+.news-title a::after {
+  content: " OPEN";
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: .12em;
+  color: var(--accent);
+  margin-left: 8px;
+  white-space: nowrap;
+}
+
+.news-title a:hover {
+  color: var(--bright);
 }
 
 .news-meta {
