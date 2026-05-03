@@ -201,6 +201,14 @@ function getTrades(symbol) {
   return state.trades.filter(trade => trade.symbol === symbol);
 }
 
+function formatQuantity(value, type) {
+  return Number(value || 0).toFixed(type === "crypto" ? 5 : 2);
+}
+
+function averageCost(pos) {
+  return pos?.quantity ? pos.cost / pos.quantity : Number(pos?.price || 0);
+}
+
 function buildLots(symbol) {
   if (!symbol) return [];
   const lots = [];
@@ -473,29 +481,35 @@ function renderAssetDetail(pos) {
         ${km(pos.marketDataLinked === false ? "Manual" : "Live", "Market data")}
       </div>
     </div>
-    <div class="price-block">
-      <div class="summary-value">${money2(pos.price)}</div>
-      <div class="mono ${pos.dayChangePct >= 0 ? "up" : "dn"}">${pct(pos.dayChangePct)} today</div>
+    <div class="asset-actions">
+      <div class="price-block">
+        <div class="summary-value">${money2(pos.price)}</div>
+        <div class="mono ${pos.dayChangePct >= 0 ? "up" : "dn"}">${pct(pos.dayChangePct)} today</div>
+      </div>
+      <div class="toolbar-row">
+        <button class="btn btn-primary" type="button" data-edit-asset="${pos.symbol}">Edit Holding</button>
+        <button class="btn btn-ghost" type="button" data-open-modal="tradeModal">Add Trade</button>
+      </div>
     </div>`;
 
   document.getElementById("lotsList").innerHTML = pos.lots.map(lot => `
     <div class="lot-row">
-      <div><div>${lot.remaining.toFixed(pos.type === "crypto" ? 5 : 2)} units</div><div class="muted">Bought ${lot.date}</div></div>
+      <div><div>${formatQuantity(lot.remaining, pos.type)} units</div><div class="muted">Bought ${lot.date}</div></div>
       <div class="price-block"><div>${money2(lot.unitCost)}</div><div class="muted">${money(lot.remaining * lot.unitCost)}</div></div>
     </div>`).join("") || `<div class="empty">No open lots</div><button class="btn btn-primary full" data-open-modal="tradeModal">Add Lot</button>`;
 
   const previewQty = Math.min(pos.quantity, pos.quantity * .2 || 0);
   const tax = estimateTax({ symbol: pos.symbol, quantity: previewQty, price: pos.price, date: todayISO(), shortRate: 24, longRate: 15 });
   document.getElementById("taxPreview").innerHTML = previewQty ? `
-    ${metric("Potential Sale", money(tax.proceeds), `${previewQty.toFixed(pos.type === "crypto" ? 5 : 2)} units`, "")}
+    ${metric("Potential Sale", money(tax.proceeds), `${formatQuantity(previewQty, pos.type)} units`, "")}
     <div class="db-row"><span>Estimated gain</span><span class="${tax.gain >= 0 ? "up" : "dn"}">${money(tax.gain)}</span></div>
     <div class="db-row"><span>Estimated federal tax</span><span class="accent">${money(tax.tax)}</span></div>
     <div class="modal-note">Preview assumes selling 20% of the current position using FIFO lots.</div>` : empty("No quantity available");
 
   document.getElementById("activityList").innerHTML = getTrades(pos.symbol).sort(byDateDesc).map(trade => `
     <div class="activity-row">
-      <div><div>${trade.action.toUpperCase()} ${Number(trade.quantity).toFixed(pos.type === "crypto" ? 5 : 2)} @ ${money2(trade.price)}</div><div class="muted">${trade.date} | ${trade.memo || "No memo"}</div></div>
-      <span class="${trade.action === "sell" ? "red" : "green"}">${trade.action === "sell" ? "-" : "+"}${money(Number(trade.quantity) * Number(trade.price))}</span>
+      <div><div>${trade.action.toUpperCase()} ${formatQuantity(trade.quantity, pos.type)} @ ${money2(trade.price)}</div><div class="muted">${trade.date} | ${trade.memo || "No memo"}</div></div>
+      <div class="activity-actions"><span class="${trade.action === "sell" ? "red" : "green"}">${trade.action === "sell" ? "-" : "+"}${money(Number(trade.quantity) * Number(trade.price))}</span><button class="cell-link danger-link" type="button" data-delete-trade="${trade.id}">Delete</button></div>
     </div>`).join("") || empty("No activity");
 }
 
@@ -702,6 +716,41 @@ function hydrateSelects() {
   document.querySelector("#assetForm [name='purchaseDate']").value ||= todayISO();
 }
 
+function resetAssetForm() {
+  const form = document.getElementById("assetForm");
+  form.reset();
+  form.elements.mode.value = "create";
+  form.elements.originalSymbol.value = "";
+  form.elements.symbol.disabled = false;
+  form.elements.purchaseDate.value = todayISO();
+  form.elements.fees.value = "0";
+  document.getElementById("assetModalTitle").textContent = "Position";
+  setAssetLookupStatus("Lookup connects the asset to server-side market data for future refreshes.");
+}
+
+function fillAssetForm(symbol) {
+  const form = document.getElementById("assetForm");
+  const asset = state.assets.find(item => item.symbol === symbol);
+  if (!asset) return;
+  const pos = positionFor(asset);
+  form.elements.mode.value = "edit";
+  form.elements.originalSymbol.value = asset.symbol;
+  form.elements.symbol.value = asset.symbol;
+  form.elements.symbol.disabled = false;
+  form.elements.name.value = asset.name || asset.symbol;
+  form.elements.type.value = asset.type || "stock";
+  form.elements.price.value = Number(asset.price || 0).toFixed(asset.type === "crypto" ? 2 : 4);
+  form.elements.targetWeight.value = asset.targetWeight || "";
+  form.elements.color.value = asset.color || "#e8d5b0";
+  form.elements.quantity.value = pos.quantity ? String(Number(pos.quantity.toFixed(asset.type === "crypto" ? 6 : 4))) : "0";
+  form.elements.costPrice.value = Number(averageCost(pos) || 0).toFixed(asset.type === "crypto" ? 2 : 4);
+  form.elements.purchaseDate.value = pos.lots[0]?.date || todayISO();
+  form.elements.fees.value = "0";
+  form.elements.notes.value = asset.notes || "";
+  document.getElementById("assetModalTitle").textContent = `Edit ${asset.symbol}`;
+  setAssetLookupStatus("Editing replaces this holding's current lots with the quantity and average cost entered here.");
+}
+
 function switchTab(tab) {
   document.querySelectorAll(".view").forEach(view => view.classList.remove("active"));
   document.getElementById(`${tab}View`).classList.add("active");
@@ -709,12 +758,20 @@ function switchTab(tab) {
 }
 
 function openModal(id) {
+  if (id === "assetModal") resetAssetForm();
   document.getElementById(id).classList.add("open");
   document.getElementById(id).setAttribute("aria-hidden", "false");
   if (id === "tradeModal" && state.selectedSymbol) {
     const tradeAsset = document.getElementById("tradeAsset");
     if (tradeAsset) tradeAsset.value = state.selectedSymbol;
   }
+}
+
+function openAssetEditor(symbol) {
+  resetAssetForm();
+  fillAssetForm(symbol);
+  document.getElementById("assetModal").classList.add("open");
+  document.getElementById("assetModal").setAttribute("aria-hidden", "false");
 }
 
 function closeModals() {
@@ -727,7 +784,9 @@ function closeModals() {
 function upsertAsset(form) {
   const data = Object.fromEntries(new FormData(form).entries());
   const symbol = data.symbol.trim().toUpperCase();
-  const existing = state.assets.find(asset => asset.symbol === symbol);
+  const originalSymbol = (data.originalSymbol || symbol).trim().toUpperCase();
+  const isEdit = data.mode === "edit";
+  const existing = state.assets.find(asset => asset.symbol === (isEdit ? originalSymbol : symbol)) || state.assets.find(asset => asset.symbol === symbol);
   const marketLinked = data.type !== "cash" && data.type !== "other";
   const purchaseDate = data.purchaseDate || todayISO();
   const quantity = Number(data.quantity || 0);
@@ -747,8 +806,24 @@ function upsertAsset(form) {
     marketDataLinked: marketLinked,
     quoteUpdatedAt: existing?.quoteUpdatedAt || null
   };
-  if (existing) Object.assign(existing, asset);
+  if (existing) {
+    Object.assign(existing, asset);
+    if (originalSymbol !== symbol) {
+      state.trades.forEach(trade => {
+        if (trade.symbol === originalSymbol) trade.symbol = symbol;
+      });
+      state.tasks.forEach(task => {
+        if (task.symbol === originalSymbol) task.symbol = symbol;
+      });
+      state.news.forEach(item => {
+        if (item.symbol === originalSymbol) item.symbol = symbol;
+      });
+    }
+  }
   else state.assets.push(asset);
+  if (isEdit) {
+    state.trades = state.trades.filter(trade => trade.symbol !== originalSymbol && trade.symbol !== symbol);
+  }
   if (quantity > 0 && costPrice > 0) {
     state.trades.push({
       id: uid(),
@@ -758,7 +833,7 @@ function upsertAsset(form) {
       price: costPrice,
       fees,
       date: purchaseDate,
-      memo: data.notes.trim() || "Initial position entry"
+      memo: isEdit ? "Manual holding update" : (data.notes.trim() || "Initial position entry")
     });
   }
   state.selectedSymbol = symbol;
@@ -954,6 +1029,11 @@ document.addEventListener("click", event => {
     render();
   }
 
+  const editAsset = event.target.closest("[data-edit-asset]")?.dataset.editAsset;
+  if (editAsset) {
+    openAssetEditor(editAsset);
+  }
+
   const taskFilter = event.target.closest("[data-task-filter]")?.dataset.taskFilter;
   if (taskFilter) {
     state.taskFilter = taskFilter;
@@ -1003,6 +1083,12 @@ document.addEventListener("click", event => {
   if (deleteIdeaId) {
     state.ideas = state.ideas.filter(idea => idea.id !== deleteIdeaId);
     state.selectedIdeaId = state.ideas[0]?.id || null;
+    render();
+  }
+
+  const deleteTradeId = event.target.closest("[data-delete-trade]")?.dataset.deleteTrade;
+  if (deleteTradeId && confirm("Delete this portfolio activity entry? This changes the holding quantity and tax lots.")) {
+    state.trades = state.trades.filter(trade => trade.id !== deleteTradeId);
     render();
   }
 

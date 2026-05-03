@@ -294,8 +294,10 @@
 
   <div class="modal-overlay" id="assetModal" aria-hidden="true">
     <form class="modal" id="assetForm">
+      <input type="hidden" name="mode" value="create">
+      <input type="hidden" name="originalSymbol" value="">
       <div class="modal-head">
-        <h2 class="modal-title">Position</h2>
+        <h2 class="modal-title" id="assetModalTitle">Position</h2>
         <button type="button" class="modal-close" data-close-modal>&times;</button>
       </div>
       <div class="form-grid">
@@ -310,7 +312,7 @@
         <label>Current Price<input name="price" type="number" step="0.0001" required placeholder="185.25"></label>
         <label>Target %<input name="targetWeight" type="number" step="0.1" placeholder="20"></label>
         <label>Color<input name="color" type="color" value="#e8d5b0"></label>
-        <label>Shares / Units<input name="quantity" type="number" step="0.000001" required placeholder="10"></label>
+        <label>Holding Quantity<input name="quantity" type="number" step="0.000001" required placeholder="10"></label>
         <label>Average Cost<input name="costPrice" type="number" step="0.0001" required placeholder="150"></label>
         <label>Purchase Date<input name="purchaseDate" type="date" required></label>
         <label>Fees<input name="fees" type="number" step="0.01" value="0"></label>

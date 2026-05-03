@@ -432,6 +432,13 @@ a:focus-visible {
   gap: 12px;
 }
 
+.asset-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 12px;
+}
+
 .ticker {
   font-family: var(--mono);
   font-size: 14px;
@@ -627,6 +634,16 @@ a:focus-visible {
 
 .connection-row span:first-child { color: var(--sub); }
 .connection-row span:last-child { color: var(--muted); text-align: right; }
+
+.activity-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  text-align: right;
+}
+
+.danger-link { color: var(--red); }
 
 .nav-list { padding: 8px 0; }
 

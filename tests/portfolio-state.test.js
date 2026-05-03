@@ -30,7 +30,9 @@ function removeDemoData(nextState) {
 
 function upsertAsset(state, data) {
   const symbol = data.symbol.trim().toUpperCase();
-  const existing = state.assets.find(asset => asset.symbol === symbol);
+  const originalSymbol = (data.originalSymbol || symbol).trim().toUpperCase();
+  const isEdit = data.mode === "edit";
+  const existing = state.assets.find(asset => asset.symbol === (isEdit ? originalSymbol : symbol)) || state.assets.find(asset => asset.symbol === symbol);
   const asset = {
     symbol,
     name: data.name.trim(),
@@ -45,8 +47,24 @@ function upsertAsset(state, data) {
     marketDataLinked: data.type !== "cash" && data.type !== "other",
     quoteUpdatedAt: existing?.quoteUpdatedAt || null
   };
-  if (existing) Object.assign(existing, asset);
+  if (existing) {
+    Object.assign(existing, asset);
+    if (originalSymbol !== symbol) {
+      state.trades.forEach(trade => {
+        if (trade.symbol === originalSymbol) trade.symbol = symbol;
+      });
+      state.tasks?.forEach(task => {
+        if (task.symbol === originalSymbol) task.symbol = symbol;
+      });
+      state.news?.forEach(item => {
+        if (item.symbol === originalSymbol) item.symbol = symbol;
+      });
+    }
+  }
   else state.assets.push(asset);
+  if (isEdit) {
+    state.trades = state.trades.filter(trade => trade.symbol !== originalSymbol && trade.symbol !== symbol);
+  }
   if (Number(data.quantity || 0) > 0 && Number(data.costPrice || data.price || 0) > 0) {
     state.trades.push({
       id: "test-trade",
@@ -56,7 +74,7 @@ function upsertAsset(state, data) {
       price: Number(data.costPrice || data.price || 0),
       fees: Number(data.fees || 0),
       date: data.purchaseDate,
-      memo: data.notes.trim() || "Initial position entry"
+      memo: isEdit ? "Manual holding update" : (data.notes.trim() || "Initial position entry")
     });
   }
   state.selectedSymbol = symbol;
@@ -163,5 +181,26 @@ upsertAsset(entryState, {
 });
 assert.strictEqual(entryState.assets[0].symbol, "MSTR");
 assert.strictEqual(positionFor(entryState, entryState.assets[0]).quantity, 12);
+
+upsertAsset(entryState, {
+  mode: "edit",
+  originalSymbol: "MSTR",
+  symbol: "MSTR",
+  name: "MicroStrategy",
+  type: "stock",
+  price: "180",
+  targetWeight: "12",
+  color: "#f5b21a",
+  quantity: "20",
+  costPrice: "160",
+  fees: "0",
+  purchaseDate: "2026-05-04",
+  notes: ""
+});
+const editedMstr = positionFor(entryState, entryState.assets[0]);
+assert.strictEqual(entryState.trades.length, 1);
+assert.strictEqual(editedMstr.quantity, 20);
+assert.strictEqual(editedMstr.cost, 3200);
+assert.strictEqual(entryState.trades[0].memo, "Manual holding update");
 
 console.log("portfolio-state tests passed");
