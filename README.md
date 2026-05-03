@@ -53,7 +53,7 @@ Use either cPanel Git Version Control or GitHub Actions with FTP credentials sto
 - `FTP_PASSWORD`
 - `FTP_SERVER_DIR`
 
-For cPanel Git Version Control, this repo includes a root `.cpanel.yml` that copies the public files into `$HOME/public_html/`. If your `mydailyedge.io` document root is different, update `DEPLOYPATH` in `.cpanel.yml` before deploying.
+For cPanel Git Version Control, this repo includes a root `.cpanel.yml` that copies the public files into `/home/bjirekar6ity/public_html/`. If your `mydailyedge.io` document root changes, update `DEPLOYPATH` in `.cpanel.yml` before deploying.
 
 The GitHub Actions example uploads `index.html`, `styles.css`, `app.js`, and `.htaccess` after every push to `main`. This keeps GitHub as the source of truth and avoids manual cPanel uploads.
 
