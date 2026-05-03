@@ -23,7 +23,7 @@ const seedState = {
   ideas: [],
   news: [],
   snapshots: [],
-  demoCleanupVersion: 2
+  demoCleanupVersion: 3
 };
 
 let state = loadState();
@@ -56,7 +56,7 @@ function loadState() {
 }
 
 function migrateState(nextState) {
-  if (Number(nextState.demoCleanupVersion || 0) < 2) {
+  if (Number(nextState.demoCleanupVersion || 0) < 3) {
     const demoSymbols = new Set(["NVDA", "AAPL", "VOO", "BTC", "TSLA"]);
     const hasDemoAssets = Array.isArray(nextState.assets) && nextState.assets.some(asset => demoSymbols.has(asset.symbol));
     const hasDemoTradeIds = Array.isArray(nextState.trades) && nextState.trades.some(trade => /^t[1-7]$/.test(String(trade.id)));
@@ -71,7 +71,7 @@ function migrateState(nextState) {
       nextState.selectedIdeaId = nextState.ideas[0]?.id || null;
     }
     delete nextState.demoDataCleared;
-    nextState.demoCleanupVersion = 2;
+    nextState.demoCleanupVersion = 3;
   }
   return nextState;
 }
