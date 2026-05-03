@@ -105,7 +105,7 @@ if ($type === 'news') {
 
     $data = alpha_request([
         'function' => 'NEWS_SENTIMENT',
-        'tickers' => implode(',', $formattedTickers),
+        'tickers' => implode(',', array_slice($formattedTickers, 0, 10)),
         'sort' => 'LATEST',
         'limit' => '50',
     ]);

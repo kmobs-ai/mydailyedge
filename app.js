@@ -760,7 +760,10 @@ async function refreshNews() {
   if (auth.configured && auth.authenticated) {
     if (!auth.marketDataConfigured) return;
     try {
-      const symbols = state.assets.map(asset => asset.symbol).join(",");
+      const symbols = state.assets
+        .filter(asset => asset.type === "stock" || asset.type === "crypto")
+        .map(asset => asset.symbol)
+        .join(",");
       const result = await apiRequest(`market.php?type=news&symbols=${encodeURIComponent(symbols)}`, {
         method: "GET",
         headers: {}
@@ -769,7 +772,7 @@ async function refreshNews() {
         state.news = result.news;
       }
     } catch (error) {
-      alert(error.message);
+      setAuthMessage(error.message);
     }
     return;
   }
