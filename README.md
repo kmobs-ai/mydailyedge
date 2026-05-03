@@ -24,7 +24,7 @@ The app supports Alpha Vantage quote and news refresh from the Intel tab. In pro
 
 The server endpoint uses Alpha Vantage `GLOBAL_QUOTE` for stock/ETF quotes and `NEWS_SENTIMENT` for investment news. Crypto prices remain manual for now, while crypto-related news can still appear through the news endpoint.
 
-When adding a portfolio asset, enter a ticker and click **Lookup**. The app will use the server-side key to fill the asset name, type, and current price, then keep that holding linked for future Refresh actions.
+When adding a portfolio position, enter a ticker and click **Lookup**. The app will use the server-side key to fill the asset name, type, and current price. Enter your shares/units, average cost, purchase date, and fees; saving creates the asset plus its first tax lot and keeps the holding linked for future Refresh actions.
 
 ## Local use
 

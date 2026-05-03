@@ -10,46 +10,20 @@ const pct = value => `${Number(value || 0) >= 0 ? "+" : ""}${Number(value || 0).
 const byDateDesc = (a, b) => String(b.date).localeCompare(String(a.date));
 
 const seedState = {
-  selectedSymbol: "NVDA",
-  selectedTaskId: "task-tax",
-  selectedIdeaId: "idea-etfs",
+  selectedSymbol: null,
+  selectedTaskId: null,
+  selectedIdeaId: null,
   selectedSnapshotId: null,
   taskFilter: "open",
   ideaFilter: "all",
   apiKey: "",
-  assets: [
-    { symbol: "NVDA", name: "NVIDIA Corp.", type: "stock", price: 627.8, previousClose: 599.62, targetWeight: 28, color: "#8b8b9a", notes: "AI infrastructure leader. Watch valuation and supply chain concentration." },
-    { symbol: "AAPL", name: "Apple Inc.", type: "stock", price: 187.35, previousClose: 184.9, targetWeight: 18, color: "#5a9e72", notes: "Durable cash generation. Monitor services growth and device replacement cycle." },
-    { symbol: "VOO", name: "Vanguard S&P 500 ETF", type: "etf", price: 512.4, previousClose: 510.2, targetWeight: 32, color: "#e8d5b0", notes: "Core broad market exposure." },
-    { symbol: "BTC", name: "Bitcoin", type: "crypto", price: 64250, previousClose: 63500, targetWeight: 12, color: "#5b8db8", notes: "High volatility allocation. Rebalance around target weight." },
-    { symbol: "TSLA", name: "Tesla Inc.", type: "stock", price: 177.12, previousClose: 180.4, targetWeight: 10, color: "#c0544a", notes: "Optionality around autonomy and energy, with high execution risk." }
-  ],
-  trades: [
-    { id: "t1", symbol: "NVDA", action: "buy", quantity: 55, price: 328.2, fees: 0, date: "2024-08-12", memo: "Initial AI infrastructure position" },
-    { id: "t2", symbol: "NVDA", action: "buy", quantity: 42, price: 471.35, fees: 0, date: "2025-02-21", memo: "Added after earnings reset" },
-    { id: "t3", symbol: "AAPL", action: "buy", quantity: 120, price: 151.3, fees: 0, date: "2024-05-15", memo: "Core compounder" },
-    { id: "t4", symbol: "VOO", action: "buy", quantity: 132, price: 421.2, fees: 0, date: "2024-02-02", memo: "Core index allocation" },
-    { id: "t5", symbol: "BTC", action: "buy", quantity: 0.72, price: 41200, fees: 12, date: "2024-11-06", memo: "Crypto sleeve" },
-    { id: "t6", symbol: "TSLA", action: "buy", quantity: 92, price: 211.6, fees: 0, date: "2025-07-18", memo: "Autonomy thesis" },
-    { id: "t7", symbol: "NVDA", action: "sell", quantity: 12, price: 601.45, fees: 0, date: "2026-04-15", memo: "Trimmed into strength" }
-  ],
-  tasks: [
-    { id: "task-tax", title: "Estimate tax impact for planned NVDA trim", category: "Finance", priority: "High", due: todayISO(), done: false, symbol: "NVDA", notes: "Use FIFO lots, then compare with actual brokerage tax lots before placing the order." },
-    { id: "task-rebalance", title: "Review target allocation drift", category: "Finance", priority: "Medium", due: todayISO(), done: false, symbol: "", notes: "Check if BTC and NVDA exceed risk budget." },
-    { id: "task-news", title: "Read earnings notes for top holdings", category: "Finance", priority: "Medium", due: addDays(todayISO(), 2), done: false, symbol: "AAPL", notes: "Capture only decision-changing notes." },
-    { id: "task-transfer", title: "Transfer monthly investment contribution", category: "Finance", priority: "Low", due: addDays(todayISO(), -1), done: true, symbol: "VOO", notes: "Recurring deposit for core index position." }
-  ],
-  ideas: [
-    { id: "idea-etfs", title: "Research dividend ETF income sleeve", stage: "research", category: "Finance", impact: 4, effort: 2, created: "2026-04-28", notes: "Compare SCHD, VIG, and DGRO. Decide whether income sleeve improves behavior or just adds complexity." },
-    { id: "idea-rules", title: "Create written selling rules for concentrated winners", stage: "committed", category: "Finance", impact: 5, effort: 2, created: "2026-04-30", notes: "Define trim bands, taxable account rules, and exceptions before high-volatility days." },
-    { id: "idea-consult", title: "Start a side consulting practice", stage: "raw", category: "Business", impact: 4, effort: 5, created: "2026-05-01", notes: "Validate one paid offer before building infrastructure." }
-  ],
-  news: [
-    { id: "n1", symbol: "NVDA", title: "Semiconductor leaders rally as AI capex expectations keep rising", source: "Sample Intel", url: "", date: todayISO(), sentiment: "Positive" },
-    { id: "n2", symbol: "AAPL", title: "Services growth remains key focus for Apple investors", source: "Sample Intel", url: "", date: todayISO(), sentiment: "Neutral" },
-    { id: "n3", symbol: "BTC", title: "Bitcoin steadies as ETF flows offset macro caution", source: "Sample Intel", url: "", date: addDays(todayISO(), -1), sentiment: "Neutral" }
-  ],
-  snapshots: []
+  assets: [],
+  trades: [],
+  tasks: [],
+  ideas: [],
+  news: [],
+  snapshots: [],
+  demoDataCleared: true
 };
 
 let state = loadState();
@@ -75,10 +49,30 @@ function loadState() {
   const stored = localStorage.getItem(STORE_KEY);
   if (!stored) return structuredClone(seedState);
   try {
-    return { ...structuredClone(seedState), ...JSON.parse(stored) };
+    return migrateState({ ...structuredClone(seedState), ...JSON.parse(stored) });
   } catch {
     return structuredClone(seedState);
   }
+}
+
+function migrateState(nextState) {
+  if (!nextState.demoDataCleared) {
+    const demoSymbols = new Set(["NVDA", "AAPL", "VOO", "BTC", "TSLA"]);
+    const hasDemoAssets = Array.isArray(nextState.assets) && nextState.assets.some(asset => demoSymbols.has(asset.symbol));
+    const hasDemoTradeIds = Array.isArray(nextState.trades) && nextState.trades.some(trade => /^t[1-7]$/.test(String(trade.id)));
+    if (hasDemoAssets || hasDemoTradeIds) {
+      nextState.assets = (nextState.assets || []).filter(asset => !demoSymbols.has(asset.symbol));
+      nextState.trades = (nextState.trades || []).filter(trade => !demoSymbols.has(trade.symbol) && !/^t[1-7]$/.test(String(trade.id)));
+      nextState.tasks = (nextState.tasks || []).filter(task => !String(task.id || "").startsWith("task-"));
+      nextState.ideas = (nextState.ideas || []).filter(idea => !String(idea.id || "").startsWith("idea-"));
+      nextState.news = (nextState.news || []).filter(item => item.source !== "Sample Intel");
+      if (demoSymbols.has(nextState.selectedSymbol)) nextState.selectedSymbol = nextState.assets[0]?.symbol || null;
+      nextState.selectedTaskId = nextState.tasks[0]?.id || null;
+      nextState.selectedIdeaId = nextState.ideas[0]?.id || null;
+    }
+    nextState.demoDataCleared = true;
+  }
+  return nextState;
 }
 
 function saveState() {
@@ -128,7 +122,7 @@ async function loadServerState() {
   const result = await apiRequest("state.php");
   if (result.state) {
     suppressSync = true;
-    state = { ...structuredClone(seedState), ...result.state };
+    state = migrateState({ ...structuredClone(seedState), ...result.state });
     localStorage.setItem(STORE_KEY, JSON.stringify(state));
     suppressSync = false;
   } else {
@@ -192,10 +186,12 @@ function getAsset(symbol = state.selectedSymbol) {
 }
 
 function getTrades(symbol) {
+  if (!symbol) return [];
   return state.trades.filter(trade => trade.symbol === symbol);
 }
 
 function buildLots(symbol) {
+  if (!symbol) return [];
   const lots = [];
   getTrades(symbol).sort((a, b) => String(a.date).localeCompare(String(b.date))).forEach(trade => {
     const quantity = Number(trade.quantity || 0);
@@ -226,6 +222,7 @@ function buildLots(symbol) {
 }
 
 function positionFor(asset) {
+  if (!asset) return null;
   const lots = buildLots(asset.symbol);
   const quantity = lots.reduce((sum, lot) => sum + lot.remaining, 0);
   const cost = lots.reduce((sum, lot) => sum + lot.remaining * lot.unitCost, 0);
@@ -376,7 +373,8 @@ function empty(text) {
 
 function renderPortfolio() {
   const port = portfolio();
-  const selected = positionFor(getAsset()?.symbol || state.assets[0]?.symbol);
+  const selectedAsset = getAsset();
+  const selected = selectedAsset ? positionFor(selectedAsset) : null;
   document.getElementById("positionCount").textContent = `${port.positions.length} assets`;
   document.getElementById("portfolioSummary").innerHTML = `
     <div class="summary-value">${money(port.value)}</div>
@@ -385,17 +383,31 @@ function renderPortfolio() {
       <div class="summary-stat"><strong class="${port.dayPct >= 0 ? "up" : "dn"}">${pct(port.dayPct)}</strong><span>Day return</span></div>
       <div class="summary-stat"><strong class="${port.gain >= 0 ? "up" : "dn"}">${money(port.gain)}</strong><span>All-time P&L</span></div>
     </div>`;
-  document.getElementById("positionList").innerHTML = port.positions.sort((a, b) => b.value - a.value).map(pos => `
+  document.getElementById("positionList").innerHTML = port.positions.length ? port.positions.sort((a, b) => b.value - a.value).map(pos => `
     <div class="position-item ${pos.symbol === selected.symbol ? "active" : ""}" data-select-asset="${pos.symbol}">
       <div class="row-top">
         <div class="asset-title-row"><span class="dot" style="background:${pos.color}"></span><div><div class="ticker">${pos.symbol}</div><div class="asset-name">${pos.name}</div></div></div>
         <div class="price-block"><div class="mono">${money(pos.value)}</div><div class="mono ${pos.dayChangePct >= 0 ? "up" : "dn"}">${pct(pos.dayChangePct)}</div></div>
       </div>
       <div class="row-meta"><span class="muted mono">${pos.quantity.toFixed(pos.type === "crypto" ? 4 : 2)} units</span><span class="muted mono">${port.value ? (pos.value / port.value * 100).toFixed(1) : "0.0"}%</span></div>
-    </div>`).join("");
+    </div>`).join("") : `<div class="summary-card"><div class="empty">No positions yet</div><button class="btn btn-primary full" data-open-modal="assetModal">Add Position</button></div>`;
 
-  renderAssetDetail(selected);
+  if (selected) renderAssetDetail(selected);
+  else renderEmptyPortfolioDetail();
   renderChart(port);
+}
+
+function renderEmptyPortfolioDetail() {
+  document.getElementById("assetDetailHead").innerHTML = `
+    <div>
+      <p class="hero-eyebrow">Portfolio setup</p>
+      <div class="asset-title">Add your first position</div>
+      <p class="hero-greeting">Use Lookup to connect a ticker to live market data, then enter your shares, average cost, and purchase date.</p>
+    </div>
+    <button class="btn btn-primary" data-open-modal="assetModal">Add Position</button>`;
+  document.getElementById("lotsList").innerHTML = empty("No lots yet");
+  document.getElementById("taxPreview").innerHTML = empty("No tax estimate yet");
+  document.getElementById("activityList").innerHTML = empty("No activity yet");
 }
 
 function renderAssetDetail(pos) {
@@ -638,6 +650,7 @@ function hydrateSelects() {
   if (taskAsset) taskAsset.innerHTML = `<option value="">None</option>${options}`;
   document.querySelector("#tradeForm [name='date']").value ||= todayISO();
   document.querySelector("#taxForm [name='date']").value ||= todayISO();
+  document.querySelector("#assetForm [name='purchaseDate']").value ||= todayISO();
 }
 
 function switchTab(tab) {
@@ -663,6 +676,10 @@ function upsertAsset(form) {
   const symbol = data.symbol.trim().toUpperCase();
   const existing = state.assets.find(asset => asset.symbol === symbol);
   const marketLinked = data.type !== "cash" && data.type !== "other";
+  const purchaseDate = data.purchaseDate || todayISO();
+  const quantity = Number(data.quantity || 0);
+  const costPrice = Number(data.costPrice || data.price || 0);
+  const fees = Number(data.fees || 0);
   const asset = {
     symbol,
     name: data.name.trim(),
@@ -679,6 +696,18 @@ function upsertAsset(form) {
   };
   if (existing) Object.assign(existing, asset);
   else state.assets.push(asset);
+  if (quantity > 0 && costPrice > 0) {
+    state.trades.push({
+      id: uid(),
+      symbol,
+      action: "buy",
+      quantity,
+      price: costPrice,
+      fees,
+      date: purchaseDate,
+      memo: data.notes.trim() || "Initial position entry"
+    });
+  }
   state.selectedSymbol = symbol;
 }
 
@@ -707,7 +736,10 @@ async function lookupAssetMarketData() {
     form.elements.name.value = asset.name || asset.symbol || symbol;
     form.elements.type.value = asset.assetType || "stock";
     form.elements.price.value = asset.price ? Number(asset.price).toFixed(asset.assetType === "crypto" ? 2 : 4) : "";
-    setAssetLookupStatus(`Linked ${asset.symbol || symbol} through Alpha Vantage. Save the asset, then add your trade lot.`, "green");
+    if (!form.elements.costPrice.value && asset.price) {
+      form.elements.costPrice.value = Number(asset.price).toFixed(asset.assetType === "crypto" ? 2 : 4);
+    }
+    setAssetLookupStatus(`Linked ${asset.symbol || symbol} through Alpha Vantage. Enter your shares and cost basis, then save.`, "green");
   } catch (error) {
     setAssetLookupStatus(error.message, "red");
   }

@@ -55,6 +55,47 @@ function alpha_request(array $params): array
     return $decoded;
 }
 
+function alpha_soft_request(array $params): ?array
+{
+    global $apiKey;
+
+    $params['apikey'] = $apiKey;
+    $url = 'https://www.alphavantage.co/query?' . http_build_query($params);
+    $raw = false;
+
+    if (function_exists('curl_init')) {
+        $curl = curl_init($url);
+        curl_setopt_array($curl, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_TIMEOUT => 12,
+            CURLOPT_HTTPHEADER => ['Accept: application/json'],
+        ]);
+        $raw = curl_exec($curl);
+        curl_close($curl);
+    } elseif (ini_get('allow_url_fopen')) {
+        $context = stream_context_create([
+            'http' => [
+                'method' => 'GET',
+                'timeout' => 12,
+                'header' => "Accept: application/json\r\n",
+            ],
+        ]);
+        $raw = @file_get_contents($url, false, $context);
+    }
+
+    if ($raw === false) {
+        return null;
+    }
+
+    $decoded = json_decode($raw, true);
+    if (!is_array($decoded) || !empty($decoded['Note']) || !empty($decoded['Information'])) {
+        return null;
+    }
+
+    return $decoded;
+}
+
 function parse_symbols(string $raw): array
 {
     $symbols = array_filter(array_map(static function (string $symbol): string {
@@ -131,10 +172,15 @@ if ($type === 'lookup') {
         respond(['ok' => true, 'asset' => $crypto]);
     }
 
-    $search = alpha_request([
+    $quote = equity_quote($symbol);
+    if (!$quote) {
+        respond(['ok' => false, 'error' => 'No live quote was found for this symbol.'], 404);
+    }
+
+    $search = alpha_soft_request([
         'function' => 'SYMBOL_SEARCH',
         'keywords' => $symbol,
-    ]);
+    ]) ?? [];
     $matches = $search['bestMatches'] ?? [];
     $best = null;
     foreach ($matches as $match) {
@@ -148,9 +194,13 @@ if ($type === 'lookup') {
     }
 
     $resolvedSymbol = strtoupper((string) ($best['1. symbol'] ?? $symbol));
-    $quote = equity_quote($resolvedSymbol);
-    if (!$quote) {
-        respond(['ok' => false, 'error' => 'No live quote was found for this symbol.'], 404);
+    if ($resolvedSymbol !== $symbol) {
+        $resolvedQuote = equity_quote($resolvedSymbol);
+        if ($resolvedQuote) {
+            $quote = $resolvedQuote;
+        } else {
+            $resolvedSymbol = $symbol;
+        }
     }
 
     $alphaType = strtolower((string) ($best['3. type'] ?? ''));

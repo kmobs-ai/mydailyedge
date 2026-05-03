@@ -47,7 +47,7 @@
             <p class="hero-greeting" id="dailyBrief">Portfolio, tasks, intel, and ideas in one daily operating view.</p>
           </div>
           <div class="hero-actions">
-            <button class="btn btn-primary" data-open-modal="assetModal">Add Asset</button>
+            <button class="btn btn-primary" data-open-modal="assetModal">Add Position</button>
             <button class="btn btn-ghost" id="captureSnapshotBtn">Snapshot</button>
             <button class="btn btn-ghost" id="refreshDataBtn">Refresh</button>
           </div>
@@ -107,7 +107,7 @@
             </div>
             <div class="summary-card" id="portfolioSummary"></div>
             <div class="toolbar-row">
-              <button class="btn btn-primary" data-open-modal="assetModal">Asset</button>
+              <button class="btn btn-primary" data-open-modal="assetModal">Position</button>
               <button class="btn btn-ghost" data-open-modal="tradeModal">Trade</button>
             </div>
             <div class="position-list" id="positionList"></div>
@@ -288,7 +288,7 @@
   <div class="modal-overlay" id="assetModal" aria-hidden="true">
     <form class="modal" id="assetForm">
       <div class="modal-head">
-        <h2 class="modal-title">Asset</h2>
+        <h2 class="modal-title">Position</h2>
         <button type="button" class="modal-close" data-close-modal>&times;</button>
       </div>
       <div class="form-grid">
@@ -300,15 +300,19 @@
         </label>
         <label>Name<input name="name" required placeholder="Apple Inc."></label>
         <label>Type<select name="type"><option>stock</option><option>etf</option><option>crypto</option><option>fund</option><option>cash</option><option>other</option></select></label>
-        <label>Price<input name="price" type="number" step="0.0001" required placeholder="185.25"></label>
+        <label>Current Price<input name="price" type="number" step="0.0001" required placeholder="185.25"></label>
         <label>Target %<input name="targetWeight" type="number" step="0.1" placeholder="20"></label>
         <label>Color<input name="color" type="color" value="#e8d5b0"></label>
+        <label>Shares / Units<input name="quantity" type="number" step="0.000001" required placeholder="10"></label>
+        <label>Average Cost<input name="costPrice" type="number" step="0.0001" required placeholder="150"></label>
+        <label>Purchase Date<input name="purchaseDate" type="date" required></label>
+        <label>Fees<input name="fees" type="number" step="0.01" value="0"></label>
       </div>
       <div class="modal-note" id="assetLookupStatus">Lookup connects the asset to server-side market data for future refreshes.</div>
       <label>Notes<textarea name="notes" rows="3" placeholder="Thesis, risk, exit criteria"></textarea></label>
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" data-close-modal>Cancel</button>
-        <button class="btn btn-primary" type="submit">Save Asset</button>
+        <button class="btn btn-primary" type="submit">Save Position</button>
       </div>
     </form>
   </div>
