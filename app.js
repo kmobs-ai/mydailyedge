@@ -8,6 +8,8 @@ const money = value => Number(value || 0).toLocaleString("en-US", { style: "curr
 const money2 = value => Number(value || 0).toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
 const pct = value => `${Number(value || 0) >= 0 ? "+" : ""}${Number(value || 0).toFixed(2)}%`;
 const byDateDesc = (a, b) => String(b.date).localeCompare(String(a.date));
+const DEMO_SYMBOLS = new Set(["NVDA", "AAPL", "VOO", "BTC", "TSLA"]);
+const DEMO_CLEANUP_VERSION = 4;
 
 const seedState = {
   selectedSymbol: null,
@@ -23,7 +25,7 @@ const seedState = {
   ideas: [],
   news: [],
   snapshots: [],
-  demoCleanupVersion: 3
+  demoCleanupVersion: DEMO_CLEANUP_VERSION
 };
 
 let state = loadState();
@@ -33,6 +35,8 @@ let auth = {
   authenticated: false,
   registrationOpen: false,
   marketDataConfigured: false,
+  marketDataProvider: "",
+  newsDataConfigured: false,
   user: null,
   error: ""
 };
@@ -56,23 +60,25 @@ function loadState() {
 }
 
 function migrateState(nextState) {
-  if (Number(nextState.demoCleanupVersion || 0) < 3) {
-    const demoSymbols = new Set(["NVDA", "AAPL", "VOO", "BTC", "TSLA"]);
-    const hasDemoAssets = Array.isArray(nextState.assets) && nextState.assets.some(asset => demoSymbols.has(asset.symbol));
-    const hasDemoTradeIds = Array.isArray(nextState.trades) && nextState.trades.some(trade => /^t[1-7]$/.test(String(trade.id)));
-    if (hasDemoAssets || hasDemoTradeIds) {
-      nextState.assets = (nextState.assets || []).filter(asset => !demoSymbols.has(asset.symbol));
-      nextState.trades = (nextState.trades || []).filter(trade => !demoSymbols.has(trade.symbol) && !/^t[1-7]$/.test(String(trade.id)));
-      nextState.tasks = (nextState.tasks || []).filter(task => !String(task.id || "").startsWith("task-"));
-      nextState.ideas = (nextState.ideas || []).filter(idea => !String(idea.id || "").startsWith("idea-"));
-      nextState.news = (nextState.news || []).filter(item => item.source !== "Sample Intel");
-      if (demoSymbols.has(nextState.selectedSymbol)) nextState.selectedSymbol = nextState.assets[0]?.symbol || null;
-      nextState.selectedTaskId = nextState.tasks[0]?.id || null;
-      nextState.selectedIdeaId = nextState.ideas[0]?.id || null;
-    }
-    delete nextState.demoDataCleared;
-    nextState.demoCleanupVersion = 3;
+  const hasDemoAssets = Array.isArray(nextState.assets) && nextState.assets.some(asset => DEMO_SYMBOLS.has(asset.symbol));
+  const hasDemoTradeIds = Array.isArray(nextState.trades) && nextState.trades.some(trade => /^t[1-7]$/.test(String(trade.id)));
+  if (hasDemoAssets || hasDemoTradeIds || Number(nextState.demoCleanupVersion || 0) < DEMO_CLEANUP_VERSION) {
+    nextState = removeDemoData(nextState);
   }
+  return nextState;
+}
+
+function removeDemoData(nextState) {
+  nextState.assets = (nextState.assets || []).filter(asset => !DEMO_SYMBOLS.has(asset.symbol));
+  nextState.trades = (nextState.trades || []).filter(trade => !DEMO_SYMBOLS.has(trade.symbol) && !/^t[1-7]$/.test(String(trade.id)));
+  nextState.tasks = (nextState.tasks || []).filter(task => !String(task.id || "").startsWith("task-"));
+  nextState.ideas = (nextState.ideas || []).filter(idea => !String(idea.id || "").startsWith("idea-"));
+  nextState.news = (nextState.news || []).filter(item => item.source !== "Sample Intel");
+  if (DEMO_SYMBOLS.has(nextState.selectedSymbol)) nextState.selectedSymbol = nextState.assets[0]?.symbol || null;
+  nextState.selectedTaskId = nextState.tasks[0]?.id || null;
+  nextState.selectedIdeaId = nextState.ideas[0]?.id || null;
+  delete nextState.demoDataCleared;
+  nextState.demoCleanupVersion = DEMO_CLEANUP_VERSION;
   return nextState;
 }
 
@@ -140,6 +146,8 @@ async function refreshAuthStatus() {
       authenticated: Boolean(result.authenticated),
       registrationOpen: Boolean(result.registrationOpen),
       marketDataConfigured: Boolean(result.marketDataConfigured),
+      marketDataProvider: result.marketDataProvider || "",
+      newsDataConfigured: Boolean(result.newsDataConfigured),
       user: result.user || null,
       error: ""
     };
@@ -150,6 +158,8 @@ async function refreshAuthStatus() {
       authenticated: false,
       registrationOpen: false,
       marketDataConfigured: false,
+      marketDataProvider: "",
+      newsDataConfigured: false,
       user: null,
       error: error.message
     };
@@ -376,6 +386,8 @@ function renderPortfolio() {
   const port = portfolio();
   const selectedAsset = getAsset();
   const selected = selectedAsset ? positionFor(selectedAsset) : null;
+  const linkedCount = port.positions.filter(pos => pos.marketDataLinked !== false && pos.type !== "cash" && pos.type !== "other").length;
+  const zeroLotCount = port.positions.filter(pos => pos.quantity <= 0).length;
   document.getElementById("positionCount").textContent = `${port.positions.length} assets`;
   document.getElementById("portfolioSummary").innerHTML = `
     <div class="summary-value">${money(port.value)}</div>
@@ -383,6 +395,17 @@ function renderPortfolio() {
       <div class="summary-stat"><strong class="${port.dayPnl >= 0 ? "up" : "dn"}">${money(port.dayPnl)}</strong><span>Today P&L</span></div>
       <div class="summary-stat"><strong class="${port.dayPct >= 0 ? "up" : "dn"}">${pct(port.dayPct)}</strong><span>Day return</span></div>
       <div class="summary-stat"><strong class="${port.gain >= 0 ? "up" : "dn"}">${money(port.gain)}</strong><span>All-time P&L</span></div>
+    </div>
+    <div class="alloc-stack">${allocationPieces(port)}</div>
+    <div class="portfolio-health">
+      <div class="health-card"><strong>${linkedCount}/${port.positions.length}</strong><span>Live linked</span></div>
+      <div class="health-card"><strong>${zeroLotCount}</strong><span>Need lots</span></div>
+      <div class="health-card"><strong>${auth.marketDataProvider || (auth.marketDataConfigured ? "Yahoo" : "Manual")}</strong><span>Quote source</span></div>
+      <div class="health-card"><strong>${port.positions.length ? "5 min" : "Paused"}</strong><span>Auto refresh</span></div>
+    </div>
+    <div class="toolbar-row" style="margin-top:14px">
+      <button class="btn btn-primary" id="portfolioRefreshBtn" type="button">Refresh Live</button>
+      <button class="btn btn-ghost" id="clearDemoBtn" type="button">Clear Demo</button>
     </div>`;
   document.getElementById("positionList").innerHTML = port.positions.length ? port.positions.sort((a, b) => b.value - a.value).map(pos => `
     <div class="position-item ${pos.symbol === selected.symbol ? "active" : ""}" data-select-asset="${pos.symbol}">
@@ -390,12 +413,37 @@ function renderPortfolio() {
         <div class="asset-title-row"><span class="dot" style="background:${pos.color}"></span><div><div class="ticker">${pos.symbol}</div><div class="asset-name">${pos.name}</div></div></div>
         <div class="price-block"><div class="mono">${money(pos.value)}</div><div class="mono ${pos.dayChangePct >= 0 ? "up" : "dn"}">${pct(pos.dayChangePct)}</div></div>
       </div>
-      <div class="row-meta"><span class="muted mono">${pos.quantity.toFixed(pos.type === "crypto" ? 4 : 2)} units</span><span class="muted mono">${port.value ? (pos.value / port.value * 100).toFixed(1) : "0.0"}%</span></div>
+      <div class="row-meta">
+        <span class="muted mono">${pos.quantity.toFixed(pos.type === "crypto" ? 4 : 2)} units</span>
+        <span class="muted mono">${pos.quantity <= 0 ? "Add lot" : (pos.marketDataLinked === false ? "Manual" : "Live")}</span>
+        <span class="muted mono">${port.value ? (pos.value / port.value * 100).toFixed(1) : "0.0"}%</span>
+      </div>
     </div>`).join("") : `<div class="summary-card"><div class="empty">No positions yet</div><button class="btn btn-primary full" data-open-modal="assetModal">Add Position</button></div>`;
 
   if (selected) renderAssetDetail(selected);
   else renderEmptyPortfolioDetail();
   renderChart(port);
+  document.getElementById("connectionPanel").innerHTML = renderConnectionPanel(port);
+}
+
+function allocationPieces(port) {
+  if (!port.value) return `<div class="alloc-piece" style="width:100%;background:var(--line2)"></div>`;
+  return port.positions
+    .filter(pos => pos.value > 0)
+    .sort((a, b) => b.value - a.value)
+    .map(pos => `<div class="alloc-piece" title="${pos.symbol}" style="width:${Math.max(1, pos.value / port.value * 100)}%;background:${pos.color}"></div>`)
+    .join("");
+}
+
+function renderConnectionPanel(port) {
+  const linked = port.positions.filter(pos => pos.marketDataLinked !== false && pos.type !== "cash" && pos.type !== "other").length;
+  return `
+    <div class="connection-row"><span>Market quotes</span><span>${auth.marketDataProvider || (auth.marketDataConfigured ? "Yahoo Finance" : "Manual only")}</span></div>
+    <div class="connection-row"><span>Linked holdings</span><span>${linked}/${port.positions.length}</span></div>
+    <div class="connection-row"><span>Position news</span><span>${auth.newsDataConfigured ? "Alpha Vantage active" : "Alpha key needed"}</span></div>
+    <div class="connection-row"><span>Kraken</span><span>API possible: balances/trades</span></div>
+    <div class="connection-row"><span>Robinhood</span><span>Official crypto API only</span></div>
+    <div class="connection-row"><span>Brokerage import</span><span>Plaid or SnapTrade recommended</span></div>`;
 }
 
 function renderEmptyPortfolioDetail() {
@@ -529,7 +577,7 @@ function renderIntel() {
   const positions = portfolio().positions;
   document.getElementById("watchCount").textContent = String(positions.length);
   document.getElementById("apiKey").value = auth.configured
-    ? (auth.marketDataConfigured ? "Server key configured" : "Add key in api/config.php")
+    ? (auth.marketDataConfigured ? `${auth.marketDataProvider || "Server quotes"} active` : "Market data unavailable")
     : (state.apiKey ? "Browser fallback key saved" : "Backend not configured");
   document.getElementById("watchList").innerHTML = positions.map(pos => `<div class="nav-item" data-select-asset="${pos.symbol}"><span class="nav-name">${pos.symbol}</span><span class="nav-count">${pct(pos.dayChangePct)}</span></div>`).join("");
   document.getElementById("newsFeed").innerHTML = state.news.map((item, index) => `
@@ -695,7 +743,7 @@ function upsertAsset(form) {
     color: data.color || "#e8d5b0",
     notes: data.notes.trim(),
     marketDataSymbol: symbol,
-    marketDataProvider: marketLinked ? "alpha_vantage" : "manual",
+    marketDataProvider: marketLinked ? "server" : "manual",
     marketDataLinked: marketLinked,
     quoteUpdatedAt: existing?.quoteUpdatedAt || null
   };
@@ -725,8 +773,8 @@ async function lookupAssetMarketData() {
     symbolInput.focus();
     return;
   }
-  if (!auth.configured || !auth.authenticated || !auth.marketDataConfigured) {
-    setAssetLookupStatus("Sign in and configure the server-side Alpha Vantage key before lookup.", "red");
+  if (!auth.configured || !auth.authenticated) {
+    setAssetLookupStatus("Sign in before using server-side lookup.", "red");
     return;
   }
 
@@ -744,7 +792,7 @@ async function lookupAssetMarketData() {
     if (!form.elements.costPrice.value && asset.price) {
       form.elements.costPrice.value = Number(asset.price).toFixed(asset.assetType === "crypto" ? 2 : 4);
     }
-    setAssetLookupStatus(`Linked ${asset.symbol || symbol} through Alpha Vantage. Enter your shares and cost basis, then save.`, "green");
+    setAssetLookupStatus(`Linked ${asset.symbol || symbol} through ${asset.provider || auth.marketDataProvider || "market data"}. Enter your shares and cost basis, then save.`, "green");
   } catch (error) {
     setAssetLookupStatus(error.message, "red");
   }
@@ -781,23 +829,23 @@ function addIdea(form) {
   state.selectedIdeaId = idea.id;
 }
 
-async function refreshLiveData() {
+async function refreshLiveData(silent = false) {
   if (auth.configured && !auth.authenticated) {
-    alert("Sign in before refreshing server-side market data.");
+    if (!silent) alert("Sign in before refreshing server-side market data.");
     return;
   }
 
   if (auth.configured && auth.authenticated) {
-    if (!auth.marketDataConfigured) {
-      alert("Add your Alpha Vantage key to api/config.php before refreshing server-side market data.");
-      return;
-    }
     document.getElementById("liveState").textContent = "Refreshing";
     try {
       const symbols = state.assets
         .filter(item => item.marketDataLinked !== false && item.type !== "cash" && item.type !== "other")
         .map(asset => asset.marketDataSymbol || asset.symbol)
         .join(",");
+      if (!symbols) {
+        render();
+        return;
+      }
       const result = await apiRequest(`market.php?type=quotes&symbols=${encodeURIComponent(symbols)}`, {
         method: "GET",
         headers: {}
@@ -808,21 +856,22 @@ async function refreshLiveData() {
           asset.previousClose = quote.previousClose || asset.price;
           asset.price = quote.price;
           asset.marketDataLinked = true;
-          asset.marketDataProvider = "alpha_vantage";
+          asset.marketDataProvider = quote.provider || auth.marketDataProvider || "server";
+          if (quote.name && (!asset.name || asset.name === asset.symbol)) asset.name = quote.name;
           asset.quoteUpdatedAt = new Date().toISOString();
         }
       }
       await refreshNews();
       render();
     } catch (error) {
-      alert(error.message);
+      if (!silent) alert(error.message);
       render();
     }
     return;
   }
 
   if (!state.apiKey) {
-    alert("Configure the server-side Alpha Vantage key in api/config.php, or save a browser fallback key in local mode.");
+    if (!silent) alert("Configure the server-side Alpha Vantage key in api/config.php, or save a browser fallback key in local mode.");
     return;
   }
 
@@ -848,7 +897,10 @@ async function refreshLiveData() {
 
 async function refreshNews() {
   if (auth.configured && auth.authenticated) {
-    if (!auth.marketDataConfigured) return;
+    if (!auth.newsDataConfigured) {
+      setAuthMessage("Quotes are live. Add an Alpha Vantage key for investment news.");
+      return;
+    }
     try {
       const symbols = state.assets
         .filter(asset => asset.type === "stock" || asset.type === "crypto")
@@ -959,6 +1011,15 @@ document.addEventListener("click", event => {
     state.selectedSnapshotId = snapId;
     render();
   }
+
+  if (event.target.closest("#portfolioRefreshBtn")) {
+    refreshLiveData();
+  }
+
+  if (event.target.closest("#clearDemoBtn")) {
+    state = removeDemoData(state);
+    render();
+  }
 });
 
 document.getElementById("assetForm").addEventListener("submit", event => {
@@ -1010,7 +1071,7 @@ document.getElementById("taxForm").addEventListener("submit", event => {
 
 document.getElementById("saveApiKeyBtn").addEventListener("click", () => {
   if (auth.configured) {
-    alert(auth.marketDataConfigured ? "Server-side market data is configured." : "Add alpha_vantage_api_key in public_html/api/config.php.");
+    alert(auth.newsDataConfigured ? "Server-side quotes and Alpha Vantage news are configured." : "Server-side Yahoo quotes are active. Add alpha_vantage_api_key in public_html/api/config.php for news.");
     return;
   }
   const key = prompt("Optional local fallback Alpha Vantage key. Prefer server-side config for production.", state.apiKey || "");
@@ -1119,4 +1180,9 @@ async function initApp() {
 }
 
 setInterval(renderClock, 1000);
+setInterval(() => {
+  if (auth.configured && auth.authenticated && state.assets.length && !document.hidden) {
+    refreshLiveData(true);
+  }
+}, 300000);
 initApp();

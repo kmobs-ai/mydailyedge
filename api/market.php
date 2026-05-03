@@ -6,13 +6,14 @@ require __DIR__ . '/_bootstrap.php';
 require_user();
 
 $apiKey = trim((string) ($config['alpha_vantage_api_key'] ?? ''));
-if ($apiKey === '') {
-    respond(['ok' => false, 'error' => 'Market data API key is not configured.'], 503);
-}
 
 function alpha_request(array $params): array
 {
     global $apiKey;
+
+    if ($apiKey === '') {
+        respond(['ok' => false, 'error' => 'Alpha Vantage is not configured for this request. Quotes still use the Yahoo Finance fallback.'], 503);
+    }
 
     $params['apikey'] = $apiKey;
     $url = 'https://www.alphavantage.co/query?' . http_build_query($params);
@@ -69,9 +70,70 @@ function alpha_error_message(string $message): string
     return 'Alpha Vantage could not complete this lookup. Enter the position manually or try again later.';
 }
 
+function yahoo_quote(string $symbol, ?string $displaySymbol = null, string $assetType = 'stock'): ?array
+{
+    $url = 'https://query1.finance.yahoo.com/v8/finance/chart/' . rawurlencode($symbol) . '?range=1d&interval=1d';
+    $raw = false;
+
+    if (function_exists('curl_init')) {
+        $curl = curl_init($url);
+        curl_setopt_array($curl, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_TIMEOUT => 8,
+            CURLOPT_HTTPHEADER => ['Accept: application/json', 'User-Agent: MyDailyEdge/1.0'],
+        ]);
+        $raw = curl_exec($curl);
+        curl_close($curl);
+    } elseif (ini_get('allow_url_fopen')) {
+        $context = stream_context_create([
+            'http' => [
+                'method' => 'GET',
+                'timeout' => 8,
+                'header' => "Accept: application/json\r\nUser-Agent: MyDailyEdge/1.0\r\n",
+            ],
+        ]);
+        $raw = @file_get_contents($url, false, $context);
+    }
+
+    if ($raw === false) {
+        return null;
+    }
+
+    $decoded = json_decode($raw, true);
+    $meta = $decoded['chart']['result'][0]['meta'] ?? null;
+    if (!is_array($meta)) {
+        return null;
+    }
+
+    $price = (float) ($meta['regularMarketPrice'] ?? 0);
+    if ($price <= 0) {
+        return null;
+    }
+
+    $previousClose = (float) ($meta['chartPreviousClose'] ?? $meta['previousClose'] ?? $price);
+
+    return [
+        'symbol' => $displaySymbol ?? strtoupper($symbol),
+        'price' => $price,
+        'previousClose' => $previousClose,
+        'change' => $price - $previousClose,
+        'changePercent' => $previousClose ? (($price - $previousClose) / $previousClose) * 100 : 0,
+        'latestTradingDay' => isset($meta['regularMarketTime']) ? date('Y-m-d', (int) $meta['regularMarketTime']) : date('Y-m-d'),
+        'assetType' => $assetType,
+        'name' => $meta['shortName'] ?? $meta['longName'] ?? ($displaySymbol ?? strtoupper($symbol)),
+        'currency' => $meta['currency'] ?? 'USD',
+        'provider' => 'yahoo',
+    ];
+}
+
 function alpha_soft_request(array $params): ?array
 {
     global $apiKey;
+
+    if ($apiKey === '') {
+        return null;
+    }
 
     $params['apikey'] = $apiKey;
     $url = 'https://www.alphavantage.co/query?' . http_build_query($params);
@@ -123,8 +185,18 @@ $type = (string) ($_GET['type'] ?? '');
 
 function crypto_quote(string $symbol): ?array
 {
+    global $apiKey;
+
     $cryptoSymbols = ['BTC', 'ETH', 'SOL', 'ADA', 'XRP', 'DOGE', 'AVAX', 'LINK', 'LTC', 'BCH'];
     if (!in_array($symbol, $cryptoSymbols, true)) {
+        return null;
+    }
+
+    $yahoo = yahoo_quote($symbol . '-USD', $symbol, 'crypto');
+    if ($yahoo) {
+        return $yahoo;
+    }
+    if ($apiKey === '') {
         return null;
     }
 
@@ -149,11 +221,22 @@ function crypto_quote(string $symbol): ?array
         'assetType' => 'crypto',
         'name' => $rate['2. From_Currency Name'] ?? $symbol,
         'currency' => 'USD',
+        'provider' => 'alpha_vantage',
     ];
 }
 
 function equity_quote(string $symbol): ?array
 {
+    global $apiKey;
+
+    $yahoo = yahoo_quote($symbol, $symbol, 'stock');
+    if ($yahoo) {
+        return $yahoo;
+    }
+    if ($apiKey === '') {
+        return null;
+    }
+
     $data = alpha_request([
         'function' => 'GLOBAL_QUOTE',
         'symbol' => $symbol,
@@ -172,6 +255,7 @@ function equity_quote(string $symbol): ?array
         'changePercent' => (float) str_replace('%', '', (string) ($quote['10. change percent'] ?? '0')),
         'latestTradingDay' => $quote['07. latest trading day'] ?? null,
         'assetType' => 'stock',
+        'provider' => 'alpha_vantage',
     ];
 }
 
@@ -224,10 +308,10 @@ if ($type === 'lookup') {
         'ok' => true,
         'asset' => array_merge($quote, [
             'symbol' => $resolvedSymbol,
-            'name' => $best['2. name'] ?? $resolvedSymbol,
+            'name' => $best['2. name'] ?? $quote['name'] ?? $resolvedSymbol,
             'assetType' => $assetType,
             'region' => $best['4. region'] ?? null,
-            'currency' => $best['8. currency'] ?? 'USD',
+            'currency' => $best['8. currency'] ?? $quote['currency'] ?? 'USD',
         ]),
     ]);
 }

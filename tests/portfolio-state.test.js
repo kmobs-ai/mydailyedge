@@ -2,25 +2,64 @@
 
 const assert = require("assert");
 
+const DEMO_SYMBOLS = new Set(["NVDA", "AAPL", "VOO", "BTC", "TSLA"]);
+const DEMO_CLEANUP_VERSION = 4;
+
 function migrateState(nextState) {
-  if (Number(nextState.demoCleanupVersion || 0) < 3) {
-    const demoSymbols = new Set(["NVDA", "AAPL", "VOO", "BTC", "TSLA"]);
-    const hasDemoAssets = Array.isArray(nextState.assets) && nextState.assets.some(asset => demoSymbols.has(asset.symbol));
-    const hasDemoTradeIds = Array.isArray(nextState.trades) && nextState.trades.some(trade => /^t[1-7]$/.test(String(trade.id)));
-    if (hasDemoAssets || hasDemoTradeIds) {
-      nextState.assets = (nextState.assets || []).filter(asset => !demoSymbols.has(asset.symbol));
-      nextState.trades = (nextState.trades || []).filter(trade => !demoSymbols.has(trade.symbol) && !/^t[1-7]$/.test(String(trade.id)));
-      nextState.tasks = (nextState.tasks || []).filter(task => !String(task.id || "").startsWith("task-"));
-      nextState.ideas = (nextState.ideas || []).filter(idea => !String(idea.id || "").startsWith("idea-"));
-      nextState.news = (nextState.news || []).filter(item => item.source !== "Sample Intel");
-      if (demoSymbols.has(nextState.selectedSymbol)) nextState.selectedSymbol = nextState.assets[0]?.symbol || null;
-      nextState.selectedTaskId = nextState.tasks[0]?.id || null;
-      nextState.selectedIdeaId = nextState.ideas[0]?.id || null;
-    }
-    delete nextState.demoDataCleared;
-    nextState.demoCleanupVersion = 3;
+  const hasDemoAssets = Array.isArray(nextState.assets) && nextState.assets.some(asset => DEMO_SYMBOLS.has(asset.symbol));
+  const hasDemoTradeIds = Array.isArray(nextState.trades) && nextState.trades.some(trade => /^t[1-7]$/.test(String(trade.id)));
+  if (hasDemoAssets || hasDemoTradeIds || Number(nextState.demoCleanupVersion || 0) < DEMO_CLEANUP_VERSION) {
+    nextState = removeDemoData(nextState);
   }
   return nextState;
+}
+
+function removeDemoData(nextState) {
+  nextState.assets = (nextState.assets || []).filter(asset => !DEMO_SYMBOLS.has(asset.symbol));
+  nextState.trades = (nextState.trades || []).filter(trade => !DEMO_SYMBOLS.has(trade.symbol) && !/^t[1-7]$/.test(String(trade.id)));
+  nextState.tasks = (nextState.tasks || []).filter(task => !String(task.id || "").startsWith("task-"));
+  nextState.ideas = (nextState.ideas || []).filter(idea => !String(idea.id || "").startsWith("idea-"));
+  nextState.news = (nextState.news || []).filter(item => item.source !== "Sample Intel");
+  if (DEMO_SYMBOLS.has(nextState.selectedSymbol)) nextState.selectedSymbol = nextState.assets[0]?.symbol || null;
+  nextState.selectedTaskId = nextState.tasks[0]?.id || null;
+  nextState.selectedIdeaId = nextState.ideas[0]?.id || null;
+  delete nextState.demoDataCleared;
+  nextState.demoCleanupVersion = DEMO_CLEANUP_VERSION;
+  return nextState;
+}
+
+function upsertAsset(state, data) {
+  const symbol = data.symbol.trim().toUpperCase();
+  const existing = state.assets.find(asset => asset.symbol === symbol);
+  const asset = {
+    symbol,
+    name: data.name.trim(),
+    type: data.type,
+    price: Number(data.price || 0),
+    previousClose: existing?.price || Number(data.price || 0),
+    targetWeight: Number(data.targetWeight || 0),
+    color: data.color || "#e8d5b0",
+    notes: data.notes.trim(),
+    marketDataSymbol: symbol,
+    marketDataProvider: data.type !== "cash" && data.type !== "other" ? "server" : "manual",
+    marketDataLinked: data.type !== "cash" && data.type !== "other",
+    quoteUpdatedAt: existing?.quoteUpdatedAt || null
+  };
+  if (existing) Object.assign(existing, asset);
+  else state.assets.push(asset);
+  if (Number(data.quantity || 0) > 0 && Number(data.costPrice || data.price || 0) > 0) {
+    state.trades.push({
+      id: "test-trade",
+      symbol,
+      action: "buy",
+      quantity: Number(data.quantity || 0),
+      price: Number(data.costPrice || data.price || 0),
+      fees: Number(data.fees || 0),
+      date: data.purchaseDate,
+      memo: data.notes.trim() || "Initial position entry"
+    });
+  }
+  state.selectedSymbol = symbol;
 }
 
 function buildLots(state, symbol) {
@@ -88,11 +127,41 @@ assert.strictEqual(migrated.selectedSymbol, "MSTR");
 assert.strictEqual(migrated.tasks.length, 0);
 assert.strictEqual(migrated.ideas.length, 0);
 assert.strictEqual(migrated.news.length, 0);
-assert.strictEqual(migrated.demoCleanupVersion, 3);
+assert.strictEqual(migrated.demoCleanupVersion, DEMO_CLEANUP_VERSION);
 
 const mstr = positionFor(migrated, migrated.assets[0]);
 assert.strictEqual(mstr.quantity, 12);
 assert.strictEqual(mstr.cost, 1800);
 assert.strictEqual(Number(mstr.value.toFixed(2)), 2126.04);
+
+const staleDemo = migrateState({
+  demoCleanupVersion: 3,
+  selectedSymbol: "VOO",
+  assets: [{ symbol: "VOO" }, { symbol: "SOL", price: 84.3 }],
+  trades: [{ id: "real-sol", symbol: "SOL", action: "buy", quantity: 4.5, price: 80, date: "2026-05-03" }],
+  tasks: [],
+  ideas: [],
+  news: []
+});
+
+assert.deepStrictEqual(staleDemo.assets.map(asset => asset.symbol), ["SOL"]);
+assert.strictEqual(positionFor(staleDemo, staleDemo.assets[0]).quantity, 4.5);
+
+const entryState = { assets: [], trades: [] };
+upsertAsset(entryState, {
+  symbol: "mstr",
+  name: "MicroStrategy",
+  type: "stock",
+  price: "177.17",
+  targetWeight: "10",
+  color: "#f5b21a",
+  quantity: "12",
+  costPrice: "150",
+  fees: "0",
+  purchaseDate: "2026-05-03",
+  notes: ""
+});
+assert.strictEqual(entryState.assets[0].symbol, "MSTR");
+assert.strictEqual(positionFor(entryState, entryState.assets[0]).quantity, 12);
 
 console.log("portfolio-state tests passed");

@@ -350,7 +350,7 @@ a:focus-visible {
 }
 
 .three-col { grid-template-columns: 230px 1fr 330px; }
-.portfolio-layout { grid-template-columns: 350px 1fr; }
+.portfolio-layout { grid-template-columns: 410px 1fr; }
 .intel-layout { grid-template-columns: 260px 1fr; }
 .history-layout { grid-template-columns: 330px 1fr; }
 
@@ -556,7 +556,7 @@ a:focus-visible {
 
 .detail-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 1px;
   background: var(--line);
 }
@@ -568,6 +568,65 @@ a:focus-visible {
   font-family: var(--mono);
   font-size: 11px;
 }
+
+.portfolio-health {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.health-card {
+  background: var(--ink3);
+  border: 1px solid var(--line2);
+  border-radius: 3px;
+  padding: 10px;
+}
+
+.health-card strong {
+  display: block;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--bright);
+}
+
+.health-card span {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--mono);
+  font-size: 9px;
+  color: var(--muted);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+
+.alloc-stack {
+  display: flex;
+  gap: 1px;
+  height: 5px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--line2);
+  margin: 16px 0 10px;
+}
+
+.alloc-piece { height: 100%; }
+
+.connection-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.connection-row:last-child { border-bottom: none; }
+
+.connection-row span:first-child { color: var(--sub); }
+.connection-row span:last-child { color: var(--muted); text-align: right; }
 
 .nav-list { padding: 8px 0; }
 

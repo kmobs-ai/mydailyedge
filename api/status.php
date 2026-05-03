@@ -21,6 +21,8 @@ respond([
     'authenticated' => $user !== null,
     'user' => $user,
     'registrationOpen' => $users === 0 || !empty($config['allow_registration']),
-    'marketDataConfigured' => !empty($config['alpha_vantage_api_key']),
+    'marketDataConfigured' => true,
+    'marketDataProvider' => !empty($config['alpha_vantage_api_key']) ? 'Yahoo + Alpha Vantage' : 'Yahoo Finance',
+    'newsDataConfigured' => !empty($config['alpha_vantage_api_key']),
     'userCount' => $users,
 ]);
