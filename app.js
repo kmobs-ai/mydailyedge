@@ -1,6 +1,7 @@
 "use strict";
 
 const STORE_KEY = "dailyedge.v1";
+const API_BASE = "api";
 const uid = () => Math.random().toString(36).slice(2, 10);
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const money = value => Number(value || 0).toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
@@ -52,6 +53,16 @@ const seedState = {
 };
 
 let state = loadState();
+let auth = {
+  checked: false,
+  configured: false,
+  authenticated: false,
+  registrationOpen: false,
+  user: null,
+  error: ""
+};
+let syncTimer = null;
+let suppressSync = false;
 
 function addDays(dateString, days) {
   const date = new Date(`${dateString}T00:00:00`);
@@ -71,6 +82,98 @@ function loadState() {
 
 function saveState() {
   localStorage.setItem(STORE_KEY, JSON.stringify(state));
+  scheduleServerSave();
+}
+
+async function apiRequest(path, options = {}) {
+  const response = await fetch(`${API_BASE}/${path}`, {
+    credentials: "same-origin",
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers || {})
+    },
+    ...options
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.ok === false) {
+    const error = new Error(data.error || `Request failed (${response.status})`);
+    error.data = data;
+    error.status = response.status;
+    throw error;
+  }
+  return data;
+}
+
+function scheduleServerSave() {
+  if (suppressSync || !auth.configured || !auth.authenticated) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(saveServerState, 700);
+}
+
+async function saveServerState() {
+  if (!auth.configured || !auth.authenticated) return;
+  try {
+    await apiRequest("state.php", {
+      method: "PUT",
+      body: JSON.stringify({ state })
+    });
+    setAuthMessage("Synced to MySQL.");
+  } catch (error) {
+    setAuthMessage(error.message);
+  }
+}
+
+async function loadServerState() {
+  const result = await apiRequest("state.php");
+  if (result.state) {
+    suppressSync = true;
+    state = { ...structuredClone(seedState), ...result.state };
+    localStorage.setItem(STORE_KEY, JSON.stringify(state));
+    suppressSync = false;
+  } else {
+    await saveServerState();
+  }
+}
+
+async function refreshAuthStatus() {
+  try {
+    const result = await apiRequest("status.php");
+    auth = {
+      checked: true,
+      configured: Boolean(result.configured),
+      authenticated: Boolean(result.authenticated),
+      registrationOpen: Boolean(result.registrationOpen),
+      user: result.user || null,
+      error: ""
+    };
+  } catch (error) {
+    auth = {
+      checked: true,
+      configured: Boolean(error.data?.configured),
+      authenticated: false,
+      registrationOpen: false,
+      user: null,
+      error: error.message
+    };
+  }
+}
+
+function setAuthMessage(message) {
+  const node = document.getElementById("authMessage");
+  if (node) node.textContent = message || "";
+}
+
+function updateAuthGate() {
+  const gate = document.getElementById("authGate");
+  if (!gate) return;
+
+  if (auth.configured && !auth.authenticated) {
+    gate.hidden = false;
+    document.getElementById("showRegisterBtn").hidden = !auth.registrationOpen;
+    setAuthMessage(auth.error || (auth.registrationOpen ? "Use your account, or create the first private account for this install." : "Registration is closed. Sign in with the existing account."));
+  } else {
+    gate.hidden = true;
+  }
 }
 
 function getAsset(symbol = state.selectedSymbol) {
@@ -165,6 +268,7 @@ function render() {
   saveState();
   renderClock();
   renderTopState();
+  updateAuthGate();
   renderOverview();
   renderPortfolio();
   renderTasks();
@@ -180,7 +284,23 @@ function renderClock() {
 }
 
 function renderTopState() {
-  document.getElementById("liveState").textContent = state.apiKey ? "Live API" : "Manual";
+  if (!auth.checked) {
+    document.getElementById("liveState").textContent = "Loading";
+    return;
+  }
+  if (auth.configured && auth.authenticated) {
+    document.getElementById("liveState").textContent = "Synced";
+    document.getElementById("authBtn").textContent = "LO";
+    document.getElementById("authBtn").title = auth.user?.email || "Log out";
+    return;
+  }
+  if (auth.configured) {
+    document.getElementById("liveState").textContent = auth.error ? "Setup" : "Login";
+    document.getElementById("authBtn").textContent = "AC";
+    return;
+  }
+  document.getElementById("liveState").textContent = state.apiKey ? "Live API" : "Local";
+  document.getElementById("authBtn").textContent = "AC";
 }
 
 function renderOverview() {
@@ -763,5 +883,81 @@ document.getElementById("importFile").addEventListener("change", async event => 
   render();
 });
 
+document.getElementById("authBtn").addEventListener("click", async () => {
+  if (auth.configured && auth.authenticated) {
+    await apiRequest("auth.php", {
+      method: "POST",
+      body: JSON.stringify({ action: "logout" })
+    });
+    auth.authenticated = false;
+    auth.user = null;
+    updateAuthGate();
+    render();
+    return;
+  }
+
+  if (!auth.configured) {
+    alert(auth.error || "Backend storage is not configured yet. Create api/config.php and install the MySQL schema to enable login.");
+    return;
+  }
+
+  document.getElementById("authGate").hidden = false;
+});
+
+document.getElementById("showRegisterBtn").addEventListener("click", () => {
+  document.getElementById("loginForm").hidden = true;
+  document.getElementById("registerForm").hidden = false;
+  setAuthMessage("Create the first account, then disable registration in api/config.php.");
+});
+
+document.getElementById("showLoginBtn").addEventListener("click", () => {
+  document.getElementById("registerForm").hidden = true;
+  document.getElementById("loginForm").hidden = false;
+  setAuthMessage("");
+});
+
+document.getElementById("loginForm").addEventListener("submit", async event => {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(event.currentTarget).entries());
+  try {
+    await apiRequest("auth.php", {
+      method: "POST",
+      body: JSON.stringify({ action: "login", email: data.email, password: data.password })
+    });
+    await refreshAuthStatus();
+    await loadServerState();
+    updateAuthGate();
+    render();
+  } catch (error) {
+    setAuthMessage(error.message);
+  }
+});
+
+document.getElementById("registerForm").addEventListener("submit", async event => {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(event.currentTarget).entries());
+  try {
+    await apiRequest("auth.php", {
+      method: "POST",
+      body: JSON.stringify({ action: "register", email: data.email, password: data.password })
+    });
+    await refreshAuthStatus();
+    await saveServerState();
+    updateAuthGate();
+    render();
+  } catch (error) {
+    setAuthMessage(error.message);
+  }
+});
+
+async function initApp() {
+  renderClock();
+  await refreshAuthStatus();
+  if (auth.configured && auth.authenticated) {
+    await loadServerState();
+  }
+  render();
+}
+
 setInterval(renderClock, 1000);
-render();
+initApp();

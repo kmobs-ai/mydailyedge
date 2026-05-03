@@ -6,3 +6,10 @@ deployment:
     - /bin/cp -f styles.css $DEPLOYPATH
     - /bin/cp -f app.js $DEPLOYPATH
     - /bin/cp -f .htaccess $DEPLOYPATH
+    - /bin/mkdir -p ${DEPLOYPATH}api
+    - /bin/cp -f api/_bootstrap.php ${DEPLOYPATH}api/
+    - /bin/cp -f api/status.php ${DEPLOYPATH}api/
+    - /bin/cp -f api/auth.php ${DEPLOYPATH}api/
+    - /bin/cp -f api/state.php ${DEPLOYPATH}api/
+    - /bin/cp -f api/.htaccess ${DEPLOYPATH}api/
+    - /bin/cp -n api/config.sample.php ${DEPLOYPATH}api/config.sample.php

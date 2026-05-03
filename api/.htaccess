@@ -1,0 +1,3 @@
+<FilesMatch "^(config|config\.sample|_bootstrap)\.php$">
+  Require all denied
+</FilesMatch>

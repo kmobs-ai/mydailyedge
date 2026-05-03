@@ -32,6 +32,7 @@
           IM
           <input id="importFile" type="file" accept="application/json">
         </label>
+        <button class="icon-btn" id="authBtn" title="Account" aria-label="Account">AC</button>
         <div class="t-status"><span class="t-dot"></span><span id="liveState">Manual</span></div>
         <div class="t-clock" id="clock">--:--:--</div>
       </div>
@@ -253,6 +254,35 @@
         </div>
       </section>
     </main>
+  </div>
+
+  <div class="auth-overlay" id="authGate" hidden>
+    <div class="auth-panel">
+      <div class="wordmark auth-wordmark"><span class="wordmark-dot"></span><span>My DailyEdge</span></div>
+      <p class="hero-eyebrow">Private workspace</p>
+      <h1>Sign in to sync your data</h1>
+      <p class="auth-copy">Your portfolio, tasks, ideas, intel, and daily snapshots are stored in your MySQL database once you sign in.</p>
+
+      <form id="loginForm" class="auth-form">
+        <label>Email<input name="email" type="email" autocomplete="email" required></label>
+        <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+        <div class="modal-actions">
+          <button class="btn btn-primary" type="submit">Sign In</button>
+          <button class="btn btn-ghost" id="showRegisterBtn" type="button">Create Account</button>
+        </div>
+      </form>
+
+      <form id="registerForm" class="auth-form" hidden>
+        <label>Email<input name="email" type="email" autocomplete="email" required></label>
+        <label>Password<input name="password" type="password" autocomplete="new-password" minlength="10" required></label>
+        <div class="modal-actions">
+          <button class="btn btn-primary" type="submit">Create Account</button>
+          <button class="btn btn-ghost" id="showLoginBtn" type="button">Back</button>
+        </div>
+      </form>
+
+      <div class="modal-note" id="authMessage"></div>
+    </div>
   </div>
 
   <div class="modal-overlay" id="assetModal" aria-hidden="true">

@@ -133,6 +133,58 @@ button { color: inherit; }
 .icon-btn:hover { border-color: var(--dim); color: var(--accent); }
 .file-btn input { display: none; }
 
+.auth-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(10, 10, 11, .92);
+}
+
+.auth-overlay[hidden] { display: none; }
+
+.auth-panel {
+  width: min(460px, 100%);
+  border: 1px solid var(--line2);
+  background: var(--ink2);
+  border-radius: 4px;
+  padding: 28px;
+  box-shadow: 0 24px 90px rgba(0, 0, 0, .52);
+}
+
+.auth-wordmark {
+  margin-bottom: 24px;
+  cursor: default;
+}
+
+.auth-panel h1 {
+  font-family: var(--serif);
+  font-size: 31px;
+  line-height: 1.12;
+  font-weight: 400;
+  color: var(--bright);
+}
+
+.auth-copy {
+  color: var(--sub);
+  line-height: 1.6;
+  margin: 12px 0 22px;
+}
+
+.auth-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 13px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
 .scroll {
   height: 100%;
   overflow: auto;

@@ -11,6 +11,7 @@ My DailyEdge is a dark, minimal personal operating app for investments, tasks, i
 - Tasks and ideas with filters, detail panels, and local persistence.
 - History snapshots that store daily portfolio value, P&L, tasks, ideas, positions, and a generated daily report.
 - Import/export JSON backup.
+- Optional PHP/MySQL login and server sync for private data storage.
 
 ## Live data
 
@@ -53,10 +54,30 @@ Use either cPanel Git Version Control or GitHub Actions with FTP credentials sto
 - `FTP_PASSWORD`
 - `FTP_SERVER_DIR`
 
-For cPanel Git Version Control, this repo includes a root `.cpanel.yml` that copies the public files into `/home/bjirekar6ity/public_html/`. If your `mydailyedge.io` document root changes, update `DEPLOYPATH` in `.cpanel.yml` before deploying.
+For cPanel Git Version Control, this repo includes a root `.cpanel.yml` that copies the public files and PHP API into `/home/bjirekar6ity/public_html/`. If your `mydailyedge.io` document root changes, update `DEPLOYPATH` in `.cpanel.yml` before deploying.
 
 The GitHub Actions example uploads `index.html`, `styles.css`, `app.js`, and `.htaccess` after every push to `main`. This keeps GitHub as the source of truth and avoids manual cPanel uploads.
 
 ### Better production app
 
 When you want real accounts, private market-data keys, scheduled daily reports, and server-side history, add a backend. On GoDaddy Web Hosting (cPanel), PHP plus MySQL is the most natural fit because cPanel supports PHP, MySQL, cron jobs, and `mod_rewrite`. If you prefer a modern Git-first workflow, host the app on Vercel, Netlify, or Cloudflare Pages and point GoDaddy DNS for `mydailyedge.io` there.
+
+## MySQL login setup on cPanel
+
+The frontend works in local browser mode until the backend is configured. To enable login and MySQL sync:
+
+1. In cPanel, open **MySQL Databases**.
+2. Create a database, for example `bjirekar6ity_mydailyedge`.
+3. Create a MySQL user and password.
+4. Add the user to the database with **All Privileges**.
+5. Open **phpMyAdmin**, select the new database, and run `database/schema.sql`.
+6. In File Manager, go to `/home/bjirekar6ity/public_html/api/`.
+7. Copy `config.sample.php` to `config.php`.
+8. Edit `config.php` with your database name, user, and password.
+9. Visit `https://mydailyedge.io`, create your first account, then edit `config.php` and set:
+
+```php
+'allow_registration' => false,
+```
+
+The app stores one JSON state document per user in MySQL. That keeps this phase simple while still giving you login, private server storage, and cross-device sync.
