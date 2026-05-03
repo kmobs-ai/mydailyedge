@@ -15,7 +15,13 @@ My DailyEdge is a dark, minimal personal operating app for investments, tasks, i
 
 ## Live data
 
-The static version supports Alpha Vantage quote and news refresh from the Intel tab. Save an API key there, then use Refresh. Because this is a static cPanel-friendly build, the key is stored in your browser localStorage. For production-grade use, move quote/news calls behind a backend endpoint so keys are not exposed to the browser.
+The app supports Alpha Vantage quote and news refresh from the Intel tab. In production, store the key in `public_html/api/config.php` so it stays server-side and is never exposed to the browser.
+
+```php
+'alpha_vantage_api_key' => 'YOUR_ALPHA_VANTAGE_KEY',
+```
+
+The server endpoint uses Alpha Vantage `GLOBAL_QUOTE` for stock/ETF quotes and `NEWS_SENTIMENT` for investment news. Crypto prices remain manual for now, while crypto-related news can still appear through the news endpoint.
 
 ## Local use
 
@@ -73,8 +79,19 @@ The frontend works in local browser mode until the backend is configured. To ena
 5. Open **phpMyAdmin**, select the new database, and run `database/schema.sql`.
 6. In File Manager, go to `/home/bjirekar6ity/public_html/api/`.
 7. Copy `config.sample.php` to `config.php`.
-8. Edit `config.php` with your database name, user, and password.
-9. Visit `https://mydailyedge.io`, create your first account, then edit `config.php` and set:
+8. Edit `config.php` with your database name, user, password, and Alpha Vantage API key.
+9. The edited values should look like this:
+
+```php
+'db_host' => 'localhost',
+'db_name' => 'bjirekar6ity_mydailyedge',
+'db_user' => 'bjirekar6ity_mydailyedge',
+'db_pass' => 'YOUR_DATABASE_PASSWORD_HERE',
+'alpha_vantage_api_key' => 'YOUR_ALPHA_VANTAGE_KEY',
+'allow_registration' => true,
+```
+
+10. Visit `https://mydailyedge.io`, create your first account, then edit `config.php` and set:
 
 ```php
 'allow_registration' => false,

@@ -21,5 +21,6 @@ respond([
     'authenticated' => $user !== null,
     'user' => $user,
     'registrationOpen' => $users === 0 || !empty($config['allow_registration']),
+    'marketDataConfigured' => !empty($config['alpha_vantage_api_key']),
     'userCount' => $users,
 ]);

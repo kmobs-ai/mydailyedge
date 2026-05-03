@@ -58,6 +58,7 @@ let auth = {
   configured: false,
   authenticated: false,
   registrationOpen: false,
+  marketDataConfigured: false,
   user: null,
   error: ""
 };
@@ -143,6 +144,7 @@ async function refreshAuthStatus() {
       configured: Boolean(result.configured),
       authenticated: Boolean(result.authenticated),
       registrationOpen: Boolean(result.registrationOpen),
+      marketDataConfigured: Boolean(result.marketDataConfigured),
       user: result.user || null,
       error: ""
     };
@@ -152,6 +154,7 @@ async function refreshAuthStatus() {
       configured: Boolean(error.data?.configured),
       authenticated: false,
       registrationOpen: false,
+      marketDataConfigured: false,
       user: null,
       error: error.message
     };
@@ -289,7 +292,7 @@ function renderTopState() {
     return;
   }
   if (auth.configured && auth.authenticated) {
-    document.getElementById("liveState").textContent = "Synced";
+    document.getElementById("liveState").textContent = auth.marketDataConfigured ? "Live Sync" : "Synced";
     document.getElementById("authBtn").textContent = "LO";
     document.getElementById("authBtn").title = auth.user?.email || "Log out";
     return;
@@ -503,7 +506,9 @@ function renderTaskDetail() {
 function renderIntel() {
   const positions = portfolio().positions;
   document.getElementById("watchCount").textContent = String(positions.length);
-  document.getElementById("apiKey").value = state.apiKey || "";
+  document.getElementById("apiKey").value = auth.configured
+    ? (auth.marketDataConfigured ? "Server key configured" : "Add key in api/config.php")
+    : (state.apiKey ? "Browser fallback key saved" : "Backend not configured");
   document.getElementById("watchList").innerHTML = positions.map(pos => `<div class="nav-item" data-select-asset="${pos.symbol}"><span class="nav-name">${pos.symbol}</span><span class="nav-count">${pct(pos.dayChangePct)}</span></div>`).join("");
   document.getElementById("newsFeed").innerHTML = state.news.map((item, index) => `
     <article class="news-row">
@@ -693,10 +698,44 @@ function addIdea(form) {
 }
 
 async function refreshLiveData() {
-  if (!state.apiKey) {
-    alert("Save an Alpha Vantage API key in Intel to refresh live stock quotes/news. Crypto and manual assets can still be updated from Portfolio.");
+  if (auth.configured && !auth.authenticated) {
+    alert("Sign in before refreshing server-side market data.");
     return;
   }
+
+  if (auth.configured && auth.authenticated) {
+    if (!auth.marketDataConfigured) {
+      alert("Add your Alpha Vantage key to api/config.php before refreshing server-side market data.");
+      return;
+    }
+    document.getElementById("liveState").textContent = "Refreshing";
+    try {
+      const symbols = state.assets.filter(item => item.type !== "crypto" && item.type !== "cash").map(asset => asset.symbol).join(",");
+      const result = await apiRequest(`market.php?type=quotes&symbols=${encodeURIComponent(symbols)}`, {
+        method: "GET",
+        headers: {}
+      });
+      for (const quote of result.quotes || []) {
+        const asset = state.assets.find(item => item.symbol === quote.symbol);
+        if (asset && quote.price) {
+          asset.previousClose = quote.previousClose || asset.price;
+          asset.price = quote.price;
+        }
+      }
+      await refreshNews();
+      render();
+    } catch (error) {
+      alert(error.message);
+      render();
+    }
+    return;
+  }
+
+  if (!state.apiKey) {
+    alert("Configure the server-side Alpha Vantage key in api/config.php, or save a browser fallback key in local mode.");
+    return;
+  }
+
   document.getElementById("liveState").textContent = "Refreshing";
   for (const asset of state.assets.filter(item => item.type !== "crypto" && item.type !== "cash")) {
     try {
@@ -718,6 +757,23 @@ async function refreshLiveData() {
 }
 
 async function refreshNews() {
+  if (auth.configured && auth.authenticated) {
+    if (!auth.marketDataConfigured) return;
+    try {
+      const symbols = state.assets.map(asset => asset.symbol).join(",");
+      const result = await apiRequest(`market.php?type=news&symbols=${encodeURIComponent(symbols)}`, {
+        method: "GET",
+        headers: {}
+      });
+      if (Array.isArray(result.news)) {
+        state.news = result.news;
+      }
+    } catch (error) {
+      alert(error.message);
+    }
+    return;
+  }
+
   if (!state.apiKey) return;
   try {
     const tickers = state.assets.filter(asset => asset.type !== "crypto" && asset.type !== "cash").map(asset => asset.symbol).join(",");
@@ -857,8 +913,15 @@ document.getElementById("taxForm").addEventListener("submit", event => {
 });
 
 document.getElementById("saveApiKeyBtn").addEventListener("click", () => {
-  state.apiKey = document.getElementById("apiKey").value.trim();
-  render();
+  if (auth.configured) {
+    alert(auth.marketDataConfigured ? "Server-side market data is configured." : "Add alpha_vantage_api_key in public_html/api/config.php.");
+    return;
+  }
+  const key = prompt("Optional local fallback Alpha Vantage key. Prefer server-side config for production.", state.apiKey || "");
+  if (key !== null) {
+    state.apiKey = key.trim();
+    render();
+  }
 });
 
 document.getElementById("refreshDataBtn").addEventListener("click", refreshLiveData);
