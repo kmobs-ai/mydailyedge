@@ -166,6 +166,14 @@ function setAuthMessage(message) {
   if (node) node.textContent = message || "";
 }
 
+function setAssetLookupStatus(message, tone = "") {
+  const node = document.getElementById("assetLookupStatus");
+  if (!node) return;
+  node.textContent = message;
+  node.classList.toggle("green", tone === "green");
+  node.classList.toggle("red", tone === "red");
+}
+
 function updateAuthGate() {
   const gate = document.getElementById("authGate");
   if (!gate) return;
@@ -401,6 +409,7 @@ function renderAssetDetail(pos) {
         ${km(money(pos.cost), "Cost basis")}
         ${km(money(pos.gain), "Unrealized")}
         ${km(`${pos.targetWeight || 0}%`, "Target")}
+        ${km(pos.marketDataLinked === false ? "Manual" : "Live", "Market data")}
       </div>
     </div>
     <div class="price-block">
@@ -653,6 +662,7 @@ function upsertAsset(form) {
   const data = Object.fromEntries(new FormData(form).entries());
   const symbol = data.symbol.trim().toUpperCase();
   const existing = state.assets.find(asset => asset.symbol === symbol);
+  const marketLinked = data.type !== "cash" && data.type !== "other";
   const asset = {
     symbol,
     name: data.name.trim(),
@@ -661,11 +671,46 @@ function upsertAsset(form) {
     previousClose: existing?.price || Number(data.price || 0),
     targetWeight: Number(data.targetWeight || 0),
     color: data.color || "#e8d5b0",
-    notes: data.notes.trim()
+    notes: data.notes.trim(),
+    marketDataSymbol: symbol,
+    marketDataProvider: marketLinked ? "alpha_vantage" : "manual",
+    marketDataLinked: marketLinked,
+    quoteUpdatedAt: existing?.quoteUpdatedAt || null
   };
   if (existing) Object.assign(existing, asset);
   else state.assets.push(asset);
   state.selectedSymbol = symbol;
+}
+
+async function lookupAssetMarketData() {
+  const form = document.getElementById("assetForm");
+  const symbolInput = form.elements.symbol;
+  const symbol = symbolInput.value.trim().toUpperCase();
+  if (!symbol) {
+    setAssetLookupStatus("Enter a ticker first.", "red");
+    symbolInput.focus();
+    return;
+  }
+  if (!auth.configured || !auth.authenticated || !auth.marketDataConfigured) {
+    setAssetLookupStatus("Sign in and configure the server-side Alpha Vantage key before lookup.", "red");
+    return;
+  }
+
+  setAssetLookupStatus(`Looking up ${symbol}...`);
+  try {
+    const result = await apiRequest(`market.php?type=lookup&symbol=${encodeURIComponent(symbol)}`, {
+      method: "GET",
+      headers: {}
+    });
+    const asset = result.asset;
+    form.elements.symbol.value = asset.symbol || symbol;
+    form.elements.name.value = asset.name || asset.symbol || symbol;
+    form.elements.type.value = asset.assetType || "stock";
+    form.elements.price.value = asset.price ? Number(asset.price).toFixed(asset.assetType === "crypto" ? 2 : 4) : "";
+    setAssetLookupStatus(`Linked ${asset.symbol || symbol} through Alpha Vantage. Save the asset, then add your trade lot.`, "green");
+  } catch (error) {
+    setAssetLookupStatus(error.message, "red");
+  }
 }
 
 function recordTrade(form) {
@@ -710,16 +755,22 @@ async function refreshLiveData() {
     }
     document.getElementById("liveState").textContent = "Refreshing";
     try {
-      const symbols = state.assets.filter(item => item.type !== "crypto" && item.type !== "cash").map(asset => asset.symbol).join(",");
+      const symbols = state.assets
+        .filter(item => item.marketDataLinked !== false && item.type !== "cash" && item.type !== "other")
+        .map(asset => asset.marketDataSymbol || asset.symbol)
+        .join(",");
       const result = await apiRequest(`market.php?type=quotes&symbols=${encodeURIComponent(symbols)}`, {
         method: "GET",
         headers: {}
       });
       for (const quote of result.quotes || []) {
-        const asset = state.assets.find(item => item.symbol === quote.symbol);
+        const asset = state.assets.find(item => (item.marketDataSymbol || item.symbol) === quote.symbol || item.symbol === quote.symbol);
         if (asset && quote.price) {
           asset.previousClose = quote.previousClose || asset.price;
           asset.price = quote.price;
+          asset.marketDataLinked = true;
+          asset.marketDataProvider = "alpha_vantage";
+          asset.quoteUpdatedAt = new Date().toISOString();
         }
       }
       await refreshNews();
@@ -875,9 +926,12 @@ document.getElementById("assetForm").addEventListener("submit", event => {
   event.preventDefault();
   upsertAsset(event.currentTarget);
   event.currentTarget.reset();
+  setAssetLookupStatus("Lookup connects the asset to server-side market data for future refreshes.");
   closeModals();
   render();
 });
+
+document.getElementById("assetLookupBtn").addEventListener("click", lookupAssetMarketData);
 
 document.getElementById("tradeForm").addEventListener("submit", event => {
   event.preventDefault();

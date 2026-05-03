@@ -66,6 +66,108 @@ function parse_symbols(string $raw): array
 
 $type = (string) ($_GET['type'] ?? '');
 
+function crypto_quote(string $symbol): ?array
+{
+    $cryptoSymbols = ['BTC', 'ETH', 'SOL', 'ADA', 'XRP', 'DOGE', 'AVAX', 'LINK', 'LTC', 'BCH'];
+    if (!in_array($symbol, $cryptoSymbols, true)) {
+        return null;
+    }
+
+    $data = alpha_request([
+        'function' => 'CURRENCY_EXCHANGE_RATE',
+        'from_currency' => $symbol,
+        'to_currency' => 'USD',
+    ]);
+    $rate = $data['Realtime Currency Exchange Rate'] ?? [];
+    $price = (float) ($rate['5. Exchange Rate'] ?? 0);
+    if ($price <= 0) {
+        return null;
+    }
+
+    return [
+        'symbol' => $symbol,
+        'price' => $price,
+        'previousClose' => $price,
+        'change' => 0,
+        'changePercent' => 0,
+        'latestTradingDay' => date('Y-m-d'),
+        'assetType' => 'crypto',
+        'name' => $rate['2. From_Currency Name'] ?? $symbol,
+        'currency' => 'USD',
+    ];
+}
+
+function equity_quote(string $symbol): ?array
+{
+    $data = alpha_request([
+        'function' => 'GLOBAL_QUOTE',
+        'symbol' => $symbol,
+    ]);
+    $quote = $data['Global Quote'] ?? [];
+    $price = (float) ($quote['05. price'] ?? 0);
+    if ($price <= 0) {
+        return null;
+    }
+
+    return [
+        'symbol' => $symbol,
+        'price' => $price,
+        'previousClose' => (float) ($quote['08. previous close'] ?? 0),
+        'change' => (float) ($quote['09. change'] ?? 0),
+        'changePercent' => (float) str_replace('%', '', (string) ($quote['10. change percent'] ?? '0')),
+        'latestTradingDay' => $quote['07. latest trading day'] ?? null,
+        'assetType' => 'stock',
+    ];
+}
+
+if ($type === 'lookup') {
+    $symbol = strtoupper(trim((string) ($_GET['symbol'] ?? '')));
+    if ($symbol === '') {
+        respond(['ok' => false, 'error' => 'Symbol is required.'], 400);
+    }
+
+    $crypto = crypto_quote($symbol);
+    if ($crypto) {
+        respond(['ok' => true, 'asset' => $crypto]);
+    }
+
+    $search = alpha_request([
+        'function' => 'SYMBOL_SEARCH',
+        'keywords' => $symbol,
+    ]);
+    $matches = $search['bestMatches'] ?? [];
+    $best = null;
+    foreach ($matches as $match) {
+        if (strtoupper((string) ($match['1. symbol'] ?? '')) === $symbol) {
+            $best = $match;
+            break;
+        }
+    }
+    if (!$best && !empty($matches[0])) {
+        $best = $matches[0];
+    }
+
+    $resolvedSymbol = strtoupper((string) ($best['1. symbol'] ?? $symbol));
+    $quote = equity_quote($resolvedSymbol);
+    if (!$quote) {
+        respond(['ok' => false, 'error' => 'No live quote was found for this symbol.'], 404);
+    }
+
+    $alphaType = strtolower((string) ($best['3. type'] ?? ''));
+    $assetType = strpos($alphaType, 'etf') !== false ? 'etf' : (strpos($alphaType, 'fund') !== false ? 'fund' : 'stock');
+
+    respond([
+        'ok' => true,
+        'asset' => array_merge($quote, [
+            'symbol' => $resolvedSymbol,
+            'name' => $best['2. name'] ?? $resolvedSymbol,
+            'assetType' => $assetType,
+            'region' => $best['4. region'] ?? null,
+            'currency' => $best['8. currency'] ?? 'USD',
+        ]),
+    ]);
+}
+
 if ($type === 'quotes') {
     $symbols = parse_symbols((string) ($_GET['symbols'] ?? ''));
     if (!$symbols) {
@@ -74,24 +176,10 @@ if ($type === 'quotes') {
 
     $quotes = [];
     foreach ($symbols as $symbol) {
-        $data = alpha_request([
-            'function' => 'GLOBAL_QUOTE',
-            'symbol' => $symbol,
-        ]);
-        $quote = $data['Global Quote'] ?? [];
-        $price = (float) ($quote['05. price'] ?? 0);
-        if ($price <= 0) {
-            continue;
+        $quote = crypto_quote($symbol) ?? equity_quote($symbol);
+        if ($quote) {
+            $quotes[] = $quote;
         }
-
-        $quotes[] = [
-            'symbol' => $symbol,
-            'price' => $price,
-            'previousClose' => (float) ($quote['08. previous close'] ?? 0),
-            'change' => (float) ($quote['09. change'] ?? 0),
-            'changePercent' => (float) str_replace('%', '', (string) ($quote['10. change percent'] ?? '0')),
-            'latestTradingDay' => $quote['07. latest trading day'] ?? null,
-        ];
     }
 
     respond(['ok' => true, 'quotes' => $quotes]);

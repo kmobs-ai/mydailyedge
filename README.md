@@ -5,6 +5,7 @@ My DailyEdge is a dark, minimal personal operating app for investments, tasks, i
 ## What is built
 
 - Portfolio positions with assets, prices, target weights, trade history, open lots, cost basis, allocation, and P&L.
+- Asset lookup from the Portfolio form that links new stock, ETF, fund, and supported crypto holdings to server-side market data.
 - Buy/sell/deposit/withdraw activity stored locally in the browser.
 - FIFO tax impact estimator for potential sales with configurable short-term and long-term rates.
 - Investment intel tied to held symbols.
@@ -22,6 +23,8 @@ The app supports Alpha Vantage quote and news refresh from the Intel tab. In pro
 ```
 
 The server endpoint uses Alpha Vantage `GLOBAL_QUOTE` for stock/ETF quotes and `NEWS_SENTIMENT` for investment news. Crypto prices remain manual for now, while crypto-related news can still appear through the news endpoint.
+
+When adding a portfolio asset, enter a ticker and click **Lookup**. The app will use the server-side key to fill the asset name, type, and current price, then keep that holding linked for future Refresh actions.
 
 ## Local use
 

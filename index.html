@@ -292,13 +292,19 @@
         <button type="button" class="modal-close" data-close-modal>&times;</button>
       </div>
       <div class="form-grid">
-        <label>Ticker<input name="symbol" required placeholder="AAPL"></label>
+        <label class="wide">Ticker
+          <span class="field-with-action">
+            <input name="symbol" id="assetSymbol" required placeholder="AAPL">
+            <button class="btn btn-ghost" id="assetLookupBtn" type="button">Lookup</button>
+          </span>
+        </label>
         <label>Name<input name="name" required placeholder="Apple Inc."></label>
         <label>Type<select name="type"><option>stock</option><option>etf</option><option>crypto</option><option>fund</option><option>cash</option><option>other</option></select></label>
         <label>Price<input name="price" type="number" step="0.0001" required placeholder="185.25"></label>
         <label>Target %<input name="targetWeight" type="number" step="0.1" placeholder="20"></label>
         <label>Color<input name="color" type="color" value="#e8d5b0"></label>
       </div>
+      <div class="modal-note" id="assetLookupStatus">Lookup connects the asset to server-side market data for future refreshes.</div>
       <label>Notes<textarea name="notes" rows="3" placeholder="Thesis, risk, exit criteria"></textarea></label>
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" data-close-modal>Cancel</button>
