@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My DailyEdge</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@300;400;500&family=Syne:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <button class="wordmark" data-tab="overview" aria-label="My DailyEdge overview">
+        <span class="wordmark-dot"></span>
+        <span>My DailyEdge</span>
+      </button>
+
+      <nav class="topbar-center" aria-label="Primary">
+        <button class="t-tab active" data-tab="overview">Overview</button>
+        <button class="t-tab" data-tab="portfolio">Portfolio</button>
+        <button class="t-tab" data-tab="tasks">Tasks</button>
+        <button class="t-tab" data-tab="intel">Intel</button>
+        <button class="t-tab" data-tab="ideas">Ideas</button>
+        <button class="t-tab" data-tab="history">History</button>
+      </nav>
+
+      <div class="topbar-right">
+        <button class="icon-btn" id="exportBtn" title="Export data" aria-label="Export data">EX</button>
+        <label class="icon-btn file-btn" title="Import data" aria-label="Import data">
+          IM
+          <input id="importFile" type="file" accept="application/json">
+        </label>
+        <div class="t-status"><span class="t-dot"></span><span id="liveState">Manual</span></div>
+        <div class="t-clock" id="clock">--:--:--</div>
+      </div>
+    </header>
+
+    <main class="scroll">
+      <section class="view active" id="overviewView" aria-labelledby="overviewTitle">
+        <div class="hero">
+          <div>
+            <p class="hero-eyebrow">Command center</p>
+            <h1 class="hero-date" id="overviewTitle">Today</h1>
+            <p class="hero-greeting" id="dailyBrief">Portfolio, tasks, intel, and ideas in one daily operating view.</p>
+          </div>
+          <div class="hero-actions">
+            <button class="btn btn-primary" data-open-modal="assetModal">Add Asset</button>
+            <button class="btn btn-ghost" id="captureSnapshotBtn">Snapshot</button>
+            <button class="btn btn-ghost" id="refreshDataBtn">Refresh</button>
+          </div>
+        </div>
+
+        <div class="hero-summary" id="overviewSummary"></div>
+
+        <div class="overview-grid">
+          <section class="cell span-2">
+            <div class="cell-head">
+              <h2 class="cell-title">Portfolio</h2>
+              <button class="cell-link" data-tab="portfolio">Open</button>
+            </div>
+            <div id="overviewPortfolio"></div>
+          </section>
+
+          <section class="cell">
+            <div class="cell-head">
+              <h2 class="cell-title">Today</h2>
+              <button class="cell-link" data-tab="tasks">Tasks</button>
+            </div>
+            <div id="overviewTasks"></div>
+          </section>
+
+          <section class="cell">
+            <div class="cell-head">
+              <h2 class="cell-title">Investment Intel</h2>
+              <button class="cell-link" data-tab="intel">Intel</button>
+            </div>
+            <div id="overviewIntel"></div>
+          </section>
+
+          <section class="cell">
+            <div class="cell-head">
+              <h2 class="cell-title">Ideas</h2>
+              <button class="cell-link" data-tab="ideas">Ideas</button>
+            </div>
+            <div id="overviewIdeas"></div>
+          </section>
+
+          <section class="cell">
+            <div class="cell-head">
+              <h2 class="cell-title">History</h2>
+              <button class="cell-link" data-tab="history">History</button>
+            </div>
+            <div id="overviewHistory"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="portfolioView" aria-labelledby="portfolioTitle">
+        <div class="split-layout portfolio-layout">
+          <aside class="panel">
+            <div class="panel-head">
+              <span class="sec-label">Positions</span>
+              <span class="sec-badge" id="positionCount">0 assets</span>
+            </div>
+            <div class="summary-card" id="portfolioSummary"></div>
+            <div class="toolbar-row">
+              <button class="btn btn-primary" data-open-modal="assetModal">Asset</button>
+              <button class="btn btn-ghost" data-open-modal="tradeModal">Trade</button>
+            </div>
+            <div class="position-list" id="positionList"></div>
+          </aside>
+
+          <section class="workspace">
+            <div class="workspace-head" id="assetDetailHead"></div>
+            <div class="workspace-body">
+              <section class="chart-panel">
+                <div class="chart-toolbar">
+                  <div class="range-tabs">
+                    <button class="range-tab active">1D</button>
+                    <button class="range-tab">1M</button>
+                    <button class="range-tab">YTD</button>
+                    <button class="range-tab">ALL</button>
+                  </div>
+                  <div class="chart-legend">
+                    <span><i class="dot green"></i> Value</span>
+                    <span><i class="dot accent"></i> Cost</span>
+                  </div>
+                </div>
+                <svg class="line-chart" id="portfolioChart" viewBox="0 0 700 240" role="img" aria-label="Portfolio value chart"></svg>
+              </section>
+
+              <div class="detail-grid">
+                <section class="detail-section">
+                  <div class="cell-head">
+                    <h2 class="cell-title">Lots</h2>
+                    <button class="cell-link" data-open-modal="tradeModal">Add</button>
+                  </div>
+                  <div id="lotsList"></div>
+                </section>
+
+                <section class="detail-section">
+                  <div class="cell-head">
+                    <h2 class="cell-title">Tax Impact</h2>
+                    <button class="cell-link" data-open-modal="taxModal">Estimate</button>
+                  </div>
+                  <div id="taxPreview"></div>
+                </section>
+
+                <section class="detail-section">
+                  <div class="cell-head">
+                    <h2 class="cell-title">Activity</h2>
+                  </div>
+                  <div id="activityList"></div>
+                </section>
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="tasksView" aria-labelledby="tasksTitle">
+        <div class="split-layout three-col">
+          <aside class="panel compact-panel">
+            <div class="panel-head">
+              <span class="sec-label">Task Filters</span>
+              <span class="sec-badge" id="taskCount">0</span>
+            </div>
+            <div id="taskFilters" class="nav-list"></div>
+            <div class="panel-stats" id="taskStats"></div>
+          </aside>
+          <section class="workspace">
+            <div class="list-toolbar">
+              <button class="filter-tab active" data-task-filter="open">Open</button>
+              <button class="filter-tab" data-task-filter="today">Today</button>
+              <button class="filter-tab" data-task-filter="finance">Finance</button>
+              <button class="filter-tab" data-task-filter="done">Done</button>
+              <button class="btn btn-primary" data-open-modal="taskModal">Add Task</button>
+            </div>
+            <div class="list-scroll" id="taskList"></div>
+          </section>
+          <aside class="panel" id="taskDetail"></aside>
+        </div>
+      </section>
+
+      <section class="view" id="intelView" aria-labelledby="intelTitle">
+        <div class="split-layout intel-layout">
+          <aside class="panel compact-panel">
+            <div class="panel-head">
+              <span class="sec-label">Watchlist</span>
+              <span class="sec-badge" id="watchCount">0</span>
+            </div>
+            <div id="watchList" class="nav-list"></div>
+            <div class="panel-stats">
+              <button class="btn btn-primary full" id="refreshNewsBtn">Refresh Intel</button>
+            </div>
+          </aside>
+          <section class="workspace">
+            <div class="workspace-head">
+              <div>
+                <p class="hero-eyebrow">News tied to your positions</p>
+                <h1 class="section-title" id="intelTitle">Investment Intel</h1>
+              </div>
+              <div class="provider-box">
+                <label for="apiKey">Alpha Vantage key</label>
+                <input id="apiKey" type="password" placeholder="Optional live quotes/news key">
+                <button class="btn btn-ghost" id="saveApiKeyBtn">Save</button>
+              </div>
+            </div>
+            <div class="news-feed" id="newsFeed"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="ideasView" aria-labelledby="ideasTitle">
+        <div class="split-layout three-col">
+          <aside class="panel compact-panel">
+            <div class="panel-head">
+              <span class="sec-label">Idea Stages</span>
+              <span class="sec-badge" id="ideaCount">0</span>
+            </div>
+            <div id="ideaFilters" class="nav-list"></div>
+            <div class="panel-stats" id="ideaStats"></div>
+          </aside>
+          <section class="workspace">
+            <div class="list-toolbar">
+              <button class="filter-tab active" data-idea-filter="all">All</button>
+              <button class="filter-tab" data-idea-filter="raw">Raw</button>
+              <button class="filter-tab" data-idea-filter="research">Research</button>
+              <button class="filter-tab" data-idea-filter="committed">Committed</button>
+              <button class="btn btn-primary" data-open-modal="ideaModal">Add Idea</button>
+            </div>
+            <div class="list-scroll" id="ideaList"></div>
+          </section>
+          <aside class="panel" id="ideaDetail"></aside>
+        </div>
+      </section>
+
+      <section class="view" id="historyView" aria-labelledby="historyTitle">
+        <div class="split-layout history-layout">
+          <aside class="panel compact-panel">
+            <div class="panel-head">
+              <span class="sec-label">Snapshots</span>
+              <span class="sec-badge" id="historyCount">0</span>
+            </div>
+            <div class="toolbar-row">
+              <button class="btn btn-primary full" id="historySnapshotBtn">Capture Today</button>
+            </div>
+            <div class="position-list" id="historyList"></div>
+          </aside>
+          <section class="workspace" id="historyDetail"></section>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="modal-overlay" id="assetModal" aria-hidden="true">
+    <form class="modal" id="assetForm">
+      <div class="modal-head">
+        <h2 class="modal-title">Asset</h2>
+        <button type="button" class="modal-close" data-close-modal>&times;</button>
+      </div>
+      <div class="form-grid">
+        <label>Ticker<input name="symbol" required placeholder="AAPL"></label>
+        <label>Name<input name="name" required placeholder="Apple Inc."></label>
+        <label>Type<select name="type"><option>stock</option><option>etf</option><option>crypto</option><option>fund</option><option>cash</option><option>other</option></select></label>
+        <label>Price<input name="price" type="number" step="0.0001" required placeholder="185.25"></label>
+        <label>Target %<input name="targetWeight" type="number" step="0.1" placeholder="20"></label>
+        <label>Color<input name="color" type="color" value="#e8d5b0"></label>
+      </div>
+      <label>Notes<textarea name="notes" rows="3" placeholder="Thesis, risk, exit criteria"></textarea></label>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" data-close-modal>Cancel</button>
+        <button class="btn btn-primary" type="submit">Save Asset</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="modal-overlay" id="tradeModal" aria-hidden="true">
+    <form class="modal" id="tradeForm">
+      <div class="modal-head">
+        <h2 class="modal-title">Trade</h2>
+        <button type="button" class="modal-close" data-close-modal>&times;</button>
+      </div>
+      <div class="form-grid">
+        <label>Asset<select name="symbol" id="tradeAsset"></select></label>
+        <label>Action<select name="action"><option value="buy">Buy</option><option value="sell">Sell</option><option value="deposit">Deposit</option><option value="withdraw">Withdraw</option></select></label>
+        <label>Quantity<input name="quantity" type="number" step="0.000001" required placeholder="10"></label>
+        <label>Price<input name="price" type="number" step="0.0001" required placeholder="100"></label>
+        <label>Date<input name="date" type="date" required></label>
+        <label>Fees<input name="fees" type="number" step="0.01" value="0"></label>
+      </div>
+      <label>Memo<textarea name="memo" rows="3" placeholder="Why this trade happened"></textarea></label>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" data-close-modal>Cancel</button>
+        <button class="btn btn-primary" type="submit">Record</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="modal-overlay" id="taxModal" aria-hidden="true">
+    <form class="modal" id="taxForm">
+      <div class="modal-head">
+        <h2 class="modal-title">Tax Estimate</h2>
+        <button type="button" class="modal-close" data-close-modal>&times;</button>
+      </div>
+      <div class="form-grid">
+        <label>Asset<select name="symbol" id="taxAsset"></select></label>
+        <label>Sell Quantity<input name="quantity" type="number" step="0.000001" required></label>
+        <label>Sell Price<input name="price" type="number" step="0.0001" required></label>
+        <label>Sale Date<input name="date" type="date" required></label>
+        <label>Short Rate %<input name="shortRate" type="number" step="0.1" value="24"></label>
+        <label>Long Rate %<input name="longRate" type="number" step="0.1" value="15"></label>
+      </div>
+      <div class="modal-note">Estimate uses FIFO lots and does not include state taxes, wash sales, NIIT, or deductions.</div>
+      <div id="taxEstimateOutput"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" data-close-modal>Close</button>
+        <button class="btn btn-primary" type="submit">Estimate</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="modal-overlay" id="taskModal" aria-hidden="true">
+    <form class="modal" id="taskForm">
+      <div class="modal-head">
+        <h2 class="modal-title">Task</h2>
+        <button type="button" class="modal-close" data-close-modal>&times;</button>
+      </div>
+      <label>Title<input name="title" required placeholder="Review portfolio rebalance"></label>
+      <div class="form-grid">
+        <label>Category<select name="category"><option>Finance</option><option>Life</option><option>Health</option><option>Work</option></select></label>
+        <label>Priority<select name="priority"><option>High</option><option>Medium</option><option>Low</option></select></label>
+        <label>Due<input name="due" type="date"></label>
+        <label>Linked Asset<select name="symbol" id="taskAsset"><option value="">None</option></select></label>
+      </div>
+      <label>Notes<textarea name="notes" rows="3"></textarea></label>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" data-close-modal>Cancel</button>
+        <button class="btn btn-primary" type="submit">Save Task</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="modal-overlay" id="ideaModal" aria-hidden="true">
+    <form class="modal" id="ideaForm">
+      <div class="modal-head">
+        <h2 class="modal-title">Idea</h2>
+        <button type="button" class="modal-close" data-close-modal>&times;</button>
+      </div>
+      <label>Title<input name="title" required placeholder="Dividend ETF income ladder"></label>
+      <div class="form-grid">
+        <label>Stage<select name="stage"><option value="raw">Raw</option><option value="research">Research</option><option value="committed">Committed</option></select></label>
+        <label>Category<select name="category"><option>Finance</option><option>Business</option><option>Life</option><option>Health</option><option>Tech</option></select></label>
+        <label>Impact<input name="impact" type="number" min="1" max="5" value="3"></label>
+        <label>Effort<input name="effort" type="number" min="1" max="5" value="2"></label>
+      </div>
+      <label>Notes<textarea name="notes" rows="4" placeholder="What makes this worth exploring?"></textarea></label>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" data-close-modal>Cancel</button>
+        <button class="btn btn-primary" type="submit">Save Idea</button>
+      </div>
+    </form>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
