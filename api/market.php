@@ -49,10 +49,24 @@ function alpha_request(array $params): array
     }
 
     if (!empty($decoded['Note']) || !empty($decoded['Information'])) {
-        respond(['ok' => false, 'error' => $decoded['Note'] ?? $decoded['Information']], 429);
+        respond(['ok' => false, 'error' => alpha_error_message($decoded['Note'] ?? $decoded['Information'])], 429);
     }
 
     return $decoded;
+}
+
+function alpha_error_message(string $message): string
+{
+    $lower = strtolower($message);
+    if (strpos($lower, 'rate limit') !== false || strpos($lower, 'requests per day') !== false || strpos($lower, 'requests per minute') !== false) {
+        return 'Alpha Vantage free limit reached. You can still enter this position manually; live lookup will work again after the provider resets your quota.';
+    }
+
+    if (strpos($lower, 'invalid') !== false) {
+        return 'Alpha Vantage rejected that symbol. Check the ticker, or enter the position manually and mark it as a stock/ETF/crypto.';
+    }
+
+    return 'Alpha Vantage could not complete this lookup. Enter the position manually or try again later.';
 }
 
 function alpha_soft_request(array $params): ?array
