@@ -127,6 +127,86 @@ function yahoo_quote(string $symbol, ?string $displaySymbol = null, string $asse
     ];
 }
 
+function yahoo_history(string $symbol, ?string $displaySymbol = null, string $assetType = 'stock', string $rangeKey = '1m'): ?array
+{
+    $rangeMap = [
+        '24h' => ['range' => '1d', 'interval' => '5m'],
+        '7d' => ['range' => '5d', 'interval' => '15m'],
+        '1m' => ['range' => '1mo', 'interval' => '1d'],
+        '6m' => ['range' => '6mo', 'interval' => '1d'],
+        'ytd' => ['range' => 'ytd', 'interval' => '1d'],
+        'all' => ['range' => 'max', 'interval' => '1mo'],
+    ];
+    $choice = $rangeMap[$rangeKey] ?? $rangeMap['1m'];
+    $url = 'https://query1.finance.yahoo.com/v8/finance/chart/' . rawurlencode($symbol) . '?' . http_build_query($choice);
+    $raw = false;
+
+    if (function_exists('curl_init')) {
+        $curl = curl_init($url);
+        curl_setopt_array($curl, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_TIMEOUT => 10,
+            CURLOPT_HTTPHEADER => ['Accept: application/json', 'User-Agent: MyDailyEdge/1.0'],
+        ]);
+        $raw = curl_exec($curl);
+        curl_close($curl);
+    } elseif (ini_get('allow_url_fopen')) {
+        $context = stream_context_create([
+            'http' => [
+                'method' => 'GET',
+                'timeout' => 10,
+                'header' => "Accept: application/json\r\nUser-Agent: MyDailyEdge/1.0\r\n",
+            ],
+        ]);
+        $raw = @file_get_contents($url, false, $context);
+    }
+
+    if ($raw === false) {
+        return null;
+    }
+
+    $decoded = json_decode($raw, true);
+    $result = $decoded['chart']['result'][0] ?? null;
+    if (!is_array($result)) {
+        return null;
+    }
+
+    $timestamps = $result['timestamp'] ?? [];
+    $quotes = $result['indicators']['quote'][0]['close'] ?? [];
+    if (!is_array($timestamps) || !is_array($quotes) || count($timestamps) === 0) {
+        return null;
+    }
+
+    $points = [];
+    foreach ($timestamps as $index => $timestamp) {
+        $price = isset($quotes[$index]) ? (float) $quotes[$index] : 0;
+        if ($price <= 0) {
+            continue;
+        }
+        $points[] = [
+            'date' => date($choice['interval'] === '1d' || $choice['interval'] === '1mo' ? 'Y-m-d' : 'Y-m-d H:i', (int) $timestamp),
+            'timestamp' => (int) $timestamp,
+            'price' => $price,
+        ];
+    }
+
+    if (!$points) {
+        return null;
+    }
+
+    $meta = $result['meta'] ?? [];
+
+    return [
+        'symbol' => $displaySymbol ?? strtoupper($symbol),
+        'assetType' => $assetType,
+        'range' => $rangeKey,
+        'provider' => 'yahoo',
+        'currency' => $meta['currency'] ?? 'USD',
+        'points' => $points,
+    ];
+}
+
 function alpha_soft_request(array $params): ?array
 {
     global $apiKey;
@@ -225,6 +305,16 @@ function crypto_quote(string $symbol): ?array
     ];
 }
 
+function crypto_history(string $symbol, string $rangeKey): ?array
+{
+    $cryptoSymbols = ['BTC', 'ETH', 'SOL', 'ADA', 'XRP', 'DOGE', 'AVAX', 'LINK', 'LTC', 'BCH'];
+    if (!in_array($symbol, $cryptoSymbols, true)) {
+        return null;
+    }
+
+    return yahoo_history($symbol . '-USD', $symbol, 'crypto', $rangeKey);
+}
+
 function equity_quote(string $symbol): ?array
 {
     global $apiKey;
@@ -257,6 +347,11 @@ function equity_quote(string $symbol): ?array
         'assetType' => 'stock',
         'provider' => 'alpha_vantage',
     ];
+}
+
+function equity_history(string $symbol, string $rangeKey): ?array
+{
+    return yahoo_history($symbol, $symbol, 'stock', $rangeKey);
 }
 
 if ($type === 'lookup') {
@@ -331,6 +426,24 @@ if ($type === 'quotes') {
     }
 
     respond(['ok' => true, 'quotes' => $quotes]);
+}
+
+if ($type === 'history') {
+    $symbols = parse_symbols((string) ($_GET['symbols'] ?? ''));
+    $range = strtolower(trim((string) ($_GET['range'] ?? '1m')));
+    if (!$symbols) {
+        respond(['ok' => false, 'error' => 'At least one symbol is required.'], 400);
+    }
+
+    $history = [];
+    foreach ($symbols as $symbol) {
+        $series = crypto_history($symbol, $range) ?? equity_history($symbol, $range);
+        if ($series) {
+            $history[] = $series;
+        }
+    }
+
+    respond(['ok' => true, 'range' => $range, 'history' => $history]);
 }
 
 if ($type === 'news') {

@@ -10,6 +10,14 @@ const pct = value => `${Number(value || 0) >= 0 ? "+" : ""}${Number(value || 0).
 const byDateDesc = (a, b) => String(b.date).localeCompare(String(a.date));
 const DEMO_SYMBOLS = new Set(["NVDA", "AAPL", "VOO", "BTC", "TSLA"]);
 const DEMO_CLEANUP_VERSION = 4;
+const CHART_RANGES = [
+  ["24h", "24H"],
+  ["7d", "7D"],
+  ["1m", "1M"],
+  ["6m", "6M"],
+  ["ytd", "YTD"],
+  ["all", "ALL"]
+];
 
 const seedState = {
   selectedSymbol: null,
@@ -18,6 +26,8 @@ const seedState = {
   selectedSnapshotId: null,
   taskFilter: "open",
   ideaFilter: "all",
+  chartMode: "asset",
+  chartRange: "1m",
   apiKey: "",
   assets: [],
   trades: [],
@@ -25,6 +35,7 @@ const seedState = {
   ideas: [],
   news: [],
   snapshots: [],
+  priceHistory: {},
   demoCleanupVersion: DEMO_CLEANUP_VERSION
 };
 
@@ -60,6 +71,9 @@ function loadState() {
 }
 
 function migrateState(nextState) {
+  nextState.priceHistory ||= {};
+  nextState.chartMode ||= "asset";
+  nextState.chartRange ||= "1m";
   const hasDemoAssets = Array.isArray(nextState.assets) && nextState.assets.some(asset => DEMO_SYMBOLS.has(asset.symbol));
   const hasDemoTradeIds = Array.isArray(nextState.trades) && nextState.trades.some(trade => /^t[1-7]$/.test(String(trade.id)));
   if (hasDemoAssets || hasDemoTradeIds || Number(nextState.demoCleanupVersion || 0) < DEMO_CLEANUP_VERSION) {
@@ -426,11 +440,15 @@ function renderPortfolio() {
         <span class="muted mono">${pos.quantity <= 0 ? "Add lot" : (pos.marketDataLinked === false ? "Manual" : "Live")}</span>
         <span class="muted mono">${port.value ? (pos.value / port.value * 100).toFixed(1) : "0.0"}%</span>
       </div>
+      <div class="row-meta pnl-row">
+        <span class="${pos.gain >= 0 ? "up" : "dn"} mono">P&L ${money(pos.gain)}</span>
+        <span class="${pos.gainPct >= 0 ? "up" : "dn"} mono">${pct(pos.gainPct)}</span>
+      </div>
     </div>`).join("") : `<div class="summary-card"><div class="empty">No positions yet</div><button class="btn btn-primary full" data-open-modal="assetModal">Add Position</button></div>`;
 
   if (selected) renderAssetDetail(selected);
   else renderEmptyPortfolioDetail();
-  renderChart(port);
+  renderChart(port, selected);
   document.getElementById("connectionPanel").innerHTML = renderConnectionPanel(port);
 }
 
@@ -517,26 +535,106 @@ function km(value, label) {
   return `<div class="km"><div class="km-val">${value}</div><div class="km-lbl">${label}</div></div>`;
 }
 
-function renderChart(port) {
-  const values = [port.cost * .86, port.cost * .91, port.cost * .94, port.cost * .9, port.cost * .98, port.cost * 1.04, port.value];
-  const costs = [port.cost * .76, port.cost * .8, port.cost * .83, port.cost * .88, port.cost * .92, port.cost * .96, port.cost];
-  const all = values.concat(costs);
-  const min = Math.min(...all) * .96;
-  const max = Math.max(...all) * 1.04;
-  const points = series => series.map((value, index) => {
-    const x = 28 + index * (644 / (series.length - 1));
-    const y = 212 - ((value - min) / (max - min || 1)) * 184;
+function historyFor(symbol, range = state.chartRange) {
+  return state.priceHistory?.[range]?.[symbol]?.points || [];
+}
+
+function fallbackHistory(pos, range = state.chartRange) {
+  if (!pos) return [];
+  const countByRange = { "24h": 12, "7d": 8, "1m": 12, "6m": 14, ytd: 12, all: 16 };
+  const count = countByRange[range] || 12;
+  const start = Number(pos.previousClose || pos.price || 0) || 1;
+  const end = Number(pos.price || start);
+  return Array.from({ length: count }, (_, index) => {
+    const t = count === 1 ? 1 : index / (count - 1);
+    const wobble = Math.sin(index * 1.7) * end * .01;
+    return {
+      timestamp: Date.now() / 1000 - (count - index) * 86400,
+      price: start + (end - start) * t + wobble
+    };
+  });
+}
+
+function assetChartSeries(pos) {
+  const pricePoints = historyFor(pos.symbol);
+  const source = pricePoints.length > 1 ? pricePoints : fallbackHistory(pos);
+  return {
+    value: source.map(point => ({ x: point.timestamp, y: Number(point.price || 0) * pos.quantity })),
+    cost: source.map(point => ({ x: point.timestamp, y: pos.cost })),
+    stale: pricePoints.length <= 1
+  };
+}
+
+function portfolioChartSeries(port) {
+  const positions = port.positions.filter(pos => pos.quantity > 0);
+  if (!positions.length) return { value: [], cost: [], stale: true };
+  const timelines = positions.map(pos => ({
+    pos,
+    points: historyFor(pos.symbol).length > 1 ? historyFor(pos.symbol) : fallbackHistory(pos)
+  }));
+  const timestamps = [...new Set(timelines.flatMap(item => item.points.map(point => point.timestamp)))].sort((a, b) => a - b);
+  const lastPrices = new Map();
+  const value = timestamps.map(timestamp => {
+    let total = 0;
+    for (const item of timelines) {
+      const exact = item.points.find(point => point.timestamp === timestamp);
+      if (exact) lastPrices.set(item.pos.symbol, Number(exact.price || 0));
+      const price = lastPrices.get(item.pos.symbol) || Number(item.pos.price || 0);
+      total += price * item.pos.quantity;
+    }
+    return { x: timestamp, y: total };
+  });
+  return {
+    value,
+    cost: value.map(point => ({ x: point.x, y: port.cost })),
+    stale: timelines.some(item => historyFor(item.pos.symbol).length <= 1)
+  };
+}
+
+function renderChart(port, selected) {
+  document.querySelectorAll("[data-chart-range]").forEach(btn => btn.classList.toggle("active", btn.dataset.chartRange === state.chartRange));
+  document.querySelectorAll("[data-chart-mode]").forEach(btn => btn.classList.toggle("active", btn.dataset.chartMode === state.chartMode));
+
+  const chart = state.chartMode === "portfolio" ? portfolioChartSeries(port) : (selected ? assetChartSeries(selected) : { value: [], cost: [], stale: true });
+  const values = chart.value.filter(point => Number.isFinite(point.y));
+  const costs = chart.cost.filter(point => Number.isFinite(point.y));
+  const all = values.concat(costs).map(point => point.y).filter(Number.isFinite);
+  const svg = document.getElementById("portfolioChart");
+  const rangeLabel = CHART_RANGES.find(([id]) => id === state.chartRange)?.[1] || "1M";
+  const modeLabel = state.chartMode === "portfolio" ? "Portfolio" : (selected?.symbol || "Asset");
+
+  if (values.length < 2 || !all.length) {
+    svg.innerHTML = `
+      <line x1="28" y1="212" x2="672" y2="212" stroke="#28282f"/>
+      <text x="350" y="118" text-anchor="middle" class="chart-empty">No chart history yet. Refresh live data.</text>`;
+    return;
+  }
+
+  const min = Math.min(...all) * .985;
+  const max = Math.max(...all) * 1.015;
+  const xMin = Math.min(...values.map(point => point.x));
+  const xMax = Math.max(...values.map(point => point.x));
+  const pointString = series => series.map(point => {
+    const x = 28 + ((point.x - xMin) / (xMax - xMin || 1)) * 644;
+    const y = 212 - ((point.y - min) / (max - min || 1)) * 184;
     return `${x.toFixed(1)},${y.toFixed(1)}`;
   }).join(" ");
-  document.getElementById("portfolioChart").innerHTML = `
+  const start = values[0]?.y || 0;
+  const end = values[values.length - 1]?.y || 0;
+  const move = end - start;
+  const movePct = start ? (move / start) * 100 : 0;
+  svg.innerHTML = `
     <line x1="28" y1="212" x2="672" y2="212" stroke="#28282f"/>
     <line x1="28" y1="28" x2="28" y2="212" stroke="#28282f"/>
-    <polyline points="${points(costs)}" fill="none" stroke="#e8d5b0" stroke-width="2" opacity=".65"/>
-    <polyline points="${points(values)}" fill="none" stroke="#67aa7d" stroke-width="2.5"/>
-    ${values.map((value, index) => {
-      const x = 28 + index * (644 / (values.length - 1));
-      const y = 212 - ((value - min) / (max - min || 1)) * 184;
-      return `<circle cx="${x}" cy="${y}" r="3" fill="#67aa7d"/>`;
+    <text x="30" y="18" class="chart-empty">${modeLabel} | ${rangeLabel} | ${money(move)} ${pct(movePct)}</text>
+    ${chart.stale ? `<text x="30" y="236" class="chart-empty">Using estimated history until live history refresh completes</text>` : ""}
+    <polyline points="${pointString(costs)}" fill="none" stroke="#e8d5b0" stroke-width="2" opacity=".65"/>
+    <polyline points="${pointString(values)}" fill="none" stroke="#67aa7d" stroke-width="2.5"/>
+    ${values.map((point, index) => {
+      if (index % Math.ceil(values.length / 8) !== 0 && index !== values.length - 1) return "";
+      const x = 28 + ((point.x - xMin) / (xMax - xMin || 1)) * 644;
+      const y = 212 - ((point.y - min) / (max - min || 1)) * 184;
+      return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3" fill="#67aa7d"/>`;
     }).join("")}`;
 }
 
@@ -936,6 +1034,7 @@ async function refreshLiveData(silent = false) {
           asset.quoteUpdatedAt = new Date().toISOString();
         }
       }
+      await refreshChartHistory(state.chartRange, true);
       await refreshNews();
       render();
     } catch (error) {
@@ -968,6 +1067,34 @@ async function refreshLiveData(silent = false) {
   }
   await refreshNews();
   render();
+}
+
+async function refreshChartHistory(range = state.chartRange, silent = false) {
+  if (!auth.configured || !auth.authenticated) return;
+  const symbols = state.assets
+    .filter(item => item.marketDataLinked !== false && item.type !== "cash" && item.type !== "other")
+    .map(asset => asset.marketDataSymbol || asset.symbol)
+    .join(",");
+  if (!symbols) return;
+  try {
+    const result = await apiRequest(`market.php?type=history&range=${encodeURIComponent(range)}&symbols=${encodeURIComponent(symbols)}`, {
+      method: "GET",
+      headers: {}
+    });
+    state.priceHistory ||= {};
+    state.priceHistory[range] ||= {};
+    for (const series of result.history || []) {
+      const asset = state.assets.find(item => (item.marketDataSymbol || item.symbol) === series.symbol || item.symbol === series.symbol);
+      if (!asset) continue;
+      state.priceHistory[range][asset.symbol] = {
+        provider: series.provider,
+        updatedAt: new Date().toISOString(),
+        points: Array.isArray(series.points) ? series.points : []
+      };
+    }
+  } catch (error) {
+    if (!silent) alert(error.message);
+  }
 }
 
 async function refreshNews() {
@@ -1022,6 +1149,19 @@ document.addEventListener("click", event => {
   const modal = event.target.closest("[data-open-modal]")?.dataset.openModal;
   if (modal) openModal(modal);
   if (event.target.closest("[data-close-modal]") || event.target.classList.contains("modal-overlay")) closeModals();
+
+  const chartMode = event.target.closest("[data-chart-mode]")?.dataset.chartMode;
+  if (chartMode) {
+    state.chartMode = chartMode;
+    render();
+  }
+
+  const chartRange = event.target.closest("[data-chart-range]")?.dataset.chartRange;
+  if (chartRange) {
+    state.chartRange = chartRange;
+    render();
+    refreshChartHistory(chartRange, true).then(render);
+  }
 
   const symbol = event.target.closest("[data-select-asset]")?.dataset.selectAsset;
   if (symbol) {
@@ -1261,6 +1401,7 @@ async function initApp() {
   await refreshAuthStatus();
   if (auth.configured && auth.authenticated) {
     await loadServerState();
+    await refreshChartHistory(state.chartRange, true);
   }
   render();
 }

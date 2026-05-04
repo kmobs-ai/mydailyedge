@@ -118,11 +118,19 @@
             <div class="workspace-body">
               <section class="chart-panel">
                 <div class="chart-toolbar">
-                  <div class="range-tabs">
-                    <button class="range-tab active">1D</button>
-                    <button class="range-tab">1M</button>
-                    <button class="range-tab">YTD</button>
-                    <button class="range-tab">ALL</button>
+                  <div class="chart-control-group">
+                    <div class="range-tabs" id="chartModeTabs">
+                      <button class="range-tab active" data-chart-mode="asset">Asset</button>
+                      <button class="range-tab" data-chart-mode="portfolio">Portfolio</button>
+                    </div>
+                    <div class="range-tabs" id="chartRangeTabs">
+                      <button class="range-tab active" data-chart-range="24h">24H</button>
+                      <button class="range-tab" data-chart-range="7d">7D</button>
+                      <button class="range-tab" data-chart-range="1m">1M</button>
+                      <button class="range-tab" data-chart-range="6m">6M</button>
+                      <button class="range-tab" data-chart-range="ytd">YTD</button>
+                      <button class="range-tab" data-chart-range="all">ALL</button>
+                    </div>
                   </div>
                   <div class="chart-legend">
                     <span><i class="dot green"></i> Value</span>

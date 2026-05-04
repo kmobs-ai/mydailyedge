@@ -451,6 +451,12 @@ a:focus-visible {
   font-size: 12px;
 }
 
+.pnl-row {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, .03);
+}
+
 .mono {
   font-family: var(--mono);
   font-size: 12px;
@@ -518,6 +524,13 @@ a:focus-visible {
   padding: 12px 32px 0;
 }
 
+.chart-control-group {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
 .range-tabs { display: flex; gap: 2px; }
 .range-tab, .filter-tab {
   font-family: var(--mono);
@@ -554,6 +567,14 @@ a:focus-visible {
 
 .dot.green { background: var(--green); }
 .dot.accent { background: var(--accent); }
+
+.chart-empty {
+  font-family: var(--mono);
+  font-size: 11px;
+  fill: var(--muted);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
 
 .line-chart {
   width: calc(100% - 64px);
