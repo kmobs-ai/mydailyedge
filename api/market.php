@@ -261,6 +261,139 @@ function parse_symbols(string $raw): array
     return array_values(array_unique(array_slice($symbols, 0, 25)));
 }
 
+function news_ticker_for_alpha(string $symbol): string
+{
+    $cryptoSymbols = ['BTC', 'ETH', 'SOL', 'ADA', 'XRP', 'DOGE', 'AVAX', 'LINK', 'LTC', 'BCH'];
+    return in_array($symbol, $cryptoSymbols, true) ? 'CRYPTO:' . $symbol : $symbol;
+}
+
+function alpha_news(array $tickers): array
+{
+    if (!$tickers) {
+        return [];
+    }
+
+    $data = alpha_soft_request([
+        'function' => 'NEWS_SENTIMENT',
+        'tickers' => implode(',', array_slice(array_map('news_ticker_for_alpha', $tickers), 0, 10)),
+        'sort' => 'LATEST',
+        'limit' => '50',
+    ]);
+    if (!$data) {
+        return [];
+    }
+
+    $feed = $data['feed'] ?? [];
+    if (!is_array($feed)) {
+        return [];
+    }
+
+    return array_map(static function (array $item): array {
+        $ticker = 'MKT';
+        if (!empty($item['ticker_sentiment'][0]['ticker'])) {
+            $ticker = str_replace('CRYPTO:', '', (string) $item['ticker_sentiment'][0]['ticker']);
+        }
+
+        $published = (string) ($item['time_published'] ?? '');
+        $date = $published ? preg_replace('/^(\d{4})(\d{2})(\d{2}).*/', '$1-$2-$3', $published) : date('Y-m-d');
+
+        return [
+            'id' => bin2hex(random_bytes(5)),
+            'symbol' => $ticker,
+            'title' => (string) ($item['title'] ?? 'Untitled'),
+            'source' => (string) ($item['source'] ?? 'Alpha Vantage'),
+            'url' => (string) ($item['url'] ?? ''),
+            'date' => $date,
+            'sentiment' => (string) ($item['overall_sentiment_label'] ?? 'Neutral'),
+        ];
+    }, array_slice($feed, 0, 25));
+}
+
+function yahoo_news_symbol(string $symbol): string
+{
+    $cryptoSymbols = ['BTC', 'ETH', 'SOL', 'ADA', 'XRP', 'DOGE', 'AVAX', 'LINK', 'LTC', 'BCH'];
+    return in_array($symbol, $cryptoSymbols, true) ? $symbol . '-USD' : $symbol;
+}
+
+function yahoo_news(array $tickers): array
+{
+    $items = [];
+    foreach (array_slice($tickers, 0, 12) as $symbol) {
+        $rssSymbol = yahoo_news_symbol($symbol);
+        $url = 'https://feeds.finance.yahoo.com/rss/2.0/headline?' . http_build_query([
+            's' => $rssSymbol,
+            'region' => 'US',
+            'lang' => 'en-US',
+        ]);
+        $raw = false;
+
+        if (function_exists('curl_init')) {
+            $curl = curl_init($url);
+            curl_setopt_array($curl, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_FOLLOWLOCATION => true,
+                CURLOPT_TIMEOUT => 8,
+                CURLOPT_HTTPHEADER => ['Accept: application/rss+xml, application/xml, text/xml', 'User-Agent: MyDailyEdge/1.0'],
+            ]);
+            $raw = curl_exec($curl);
+            curl_close($curl);
+        } elseif (ini_get('allow_url_fopen')) {
+            $context = stream_context_create([
+                'http' => [
+                    'method' => 'GET',
+                    'timeout' => 8,
+                    'header' => "Accept: application/rss+xml, application/xml, text/xml\r\nUser-Agent: MyDailyEdge/1.0\r\n",
+                ],
+            ]);
+            $raw = @file_get_contents($url, false, $context);
+        }
+
+        if ($raw === false || !function_exists('simplexml_load_string')) {
+            continue;
+        }
+
+        $xml = @simplexml_load_string($raw);
+        if (!$xml || empty($xml->channel->item)) {
+            continue;
+        }
+
+        foreach ($xml->channel->item as $item) {
+            $published = strtotime((string) ($item->pubDate ?? '')) ?: time();
+            $items[] = [
+                'id' => bin2hex(random_bytes(5)),
+                'symbol' => $symbol,
+                'title' => trim((string) ($item->title ?? 'Untitled')),
+                'source' => 'Yahoo Finance',
+                'url' => trim((string) ($item->link ?? '')),
+                'date' => date('Y-m-d', $published),
+                'sentiment' => 'Neutral',
+            ];
+        }
+    }
+
+    usort($items, static function (array $a, array $b): int {
+        return strcmp((string) $b['date'], (string) $a['date']);
+    });
+
+    return array_slice($items, 0, 30);
+}
+
+function dedupe_news(array $items): array
+{
+    $seen = [];
+    $deduped = [];
+    foreach ($items as $item) {
+        $key = strtolower((string) ($item['url'] ?: $item['title']));
+        if ($key === '' || isset($seen[$key])) {
+            continue;
+        }
+        $seen[$key] = true;
+        $deduped[] = $item;
+    }
+
+    return array_slice($deduped, 0, 30);
+}
+
 $type = (string) ($_GET['type'] ?? '');
 
 function crypto_quote(string $symbol): ?array
@@ -448,39 +581,15 @@ if ($type === 'history') {
 
 if ($type === 'news') {
     $tickers = parse_symbols((string) ($_GET['symbols'] ?? ''));
-    $formattedTickers = array_map(static function (string $symbol): string {
-        return $symbol === 'BTC' ? 'CRYPTO:BTC' : $symbol;
-    }, $tickers);
+    if (!$tickers) {
+        respond(['ok' => true, 'provider' => 'None', 'news' => []]);
+    }
 
-    $data = alpha_request([
-        'function' => 'NEWS_SENTIMENT',
-        'tickers' => implode(',', array_slice($formattedTickers, 0, 10)),
-        'sort' => 'LATEST',
-        'limit' => '50',
-    ]);
+    $alphaItems = alpha_news($tickers);
+    $yahooItems = yahoo_news($tickers);
+    $provider = $alphaItems ? 'Alpha Vantage + Yahoo Finance' : 'Yahoo Finance';
 
-    $feed = $data['feed'] ?? [];
-    $news = array_map(static function (array $item): array {
-        $ticker = 'MKT';
-        if (!empty($item['ticker_sentiment'][0]['ticker'])) {
-            $ticker = str_replace('CRYPTO:', '', (string) $item['ticker_sentiment'][0]['ticker']);
-        }
-
-        $published = (string) ($item['time_published'] ?? '');
-        $date = $published ? preg_replace('/^(\d{4})(\d{2})(\d{2}).*/', '$1-$2-$3', $published) : date('Y-m-d');
-
-        return [
-            'id' => bin2hex(random_bytes(5)),
-            'symbol' => $ticker,
-            'title' => (string) ($item['title'] ?? 'Untitled'),
-            'source' => (string) ($item['source'] ?? 'Alpha Vantage'),
-            'url' => (string) ($item['url'] ?? ''),
-            'date' => $date,
-            'sentiment' => (string) ($item['overall_sentiment_label'] ?? 'Neutral'),
-        ];
-    }, is_array($feed) ? array_slice($feed, 0, 25) : []);
-
-    respond(['ok' => true, 'news' => $news]);
+    respond(['ok' => true, 'provider' => $provider, 'news' => dedupe_news(array_merge($alphaItems, $yahooItems))]);
 }
 
 respond(['ok' => false, 'error' => 'Unsupported market data request.'], 400);

@@ -24,6 +24,7 @@
         <button class="t-tab" data-tab="intel">Intel</button>
         <button class="t-tab" data-tab="ideas">Ideas</button>
         <button class="t-tab" data-tab="history">History</button>
+        <button class="t-tab" data-tab="profile">Profile</button>
       </nav>
 
       <div class="topbar-right">
@@ -266,6 +267,55 @@
             <div class="position-list" id="historyList"></div>
           </aside>
           <section class="workspace" id="historyDetail"></section>
+        </div>
+      </section>
+
+      <section class="view" id="profileView" aria-labelledby="profileTitle">
+        <div class="split-layout profile-layout">
+          <section class="workspace">
+            <div class="workspace-head">
+              <div>
+                <p class="hero-eyebrow">Account preferences</p>
+                <h1 class="section-title" id="profileTitle">Profile</h1>
+              </div>
+            </div>
+            <form class="profile-form" id="profileForm">
+              <div class="form-grid">
+                <label>Display Name<input name="displayName" autocomplete="name" placeholder="Luis"></label>
+                <label>Email<input name="email" type="email" readonly placeholder="Sign in to show email"></label>
+                <label>Base Currency
+                  <select name="baseCurrency">
+                    <option value="USD">USD</option>
+                    <option value="EUR">EUR</option>
+                    <option value="GBP">GBP</option>
+                    <option value="CAD">CAD</option>
+                  </select>
+                </label>
+                <label>Time Zone<input name="timeZone" placeholder="America/New_York"></label>
+                <label class="wide">Investing Style
+                  <select name="investingStyle">
+                    <option>Long-term</option>
+                    <option>Growth</option>
+                    <option>Income</option>
+                    <option>Trading</option>
+                    <option>Balanced</option>
+                  </select>
+                </label>
+              </div>
+              <label>Notes<textarea name="notes" rows="5" placeholder="Portfolio goals, constraints, tax notes, broker reminders"></textarea></label>
+              <div class="modal-note" id="profileMessage">Profile details are saved with your synced workspace data.</div>
+              <div class="modal-actions">
+                <button class="btn btn-primary" type="submit">Save Profile</button>
+              </div>
+            </form>
+          </section>
+          <aside class="panel profile-side">
+            <div class="panel-head">
+              <span class="sec-label">Account</span>
+              <span class="sec-badge">Private</span>
+            </div>
+            <div class="profile-account" id="profileAccount"></div>
+          </aside>
         </div>
       </section>
     </main>

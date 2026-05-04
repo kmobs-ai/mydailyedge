@@ -18,6 +18,13 @@ const CHART_RANGES = [
   ["ytd", "YTD"],
   ["all", "ALL"]
 ];
+const DEFAULT_PROFILE = {
+  displayName: "",
+  baseCurrency: "USD",
+  timeZone: "America/New_York",
+  investingStyle: "Long-term",
+  notes: ""
+};
 
 const seedState = {
   selectedSymbol: null,
@@ -36,6 +43,7 @@ const seedState = {
   news: [],
   snapshots: [],
   priceHistory: {},
+  profile: { ...DEFAULT_PROFILE },
   demoCleanupVersion: DEMO_CLEANUP_VERSION
 };
 
@@ -74,6 +82,7 @@ function migrateState(nextState) {
   nextState.priceHistory ||= {};
   nextState.chartMode ||= "asset";
   nextState.chartRange ||= "1m";
+  nextState.profile = { ...DEFAULT_PROFILE, ...(nextState.profile || {}) };
   const hasDemoAssets = Array.isArray(nextState.assets) && nextState.assets.some(asset => DEMO_SYMBOLS.has(asset.symbol));
   const hasDemoTradeIds = Array.isArray(nextState.trades) && nextState.trades.some(trade => /^t[1-7]$/.test(String(trade.id)));
   if (hasDemoAssets || hasDemoTradeIds || Number(nextState.demoCleanupVersion || 0) < DEMO_CLEANUP_VERSION) {
@@ -316,6 +325,7 @@ function render() {
   renderIntel();
   renderIdeas();
   renderHistory();
+  renderProfile();
   hydrateSelects();
 }
 
@@ -404,6 +414,17 @@ function empty(text) {
   return `<div class="empty">${text}</div>`;
 }
 
+function cleanUrl(url) {
+  const value = String(url || "").trim();
+  if (!value) return "";
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.href : "";
+  } catch {
+    return "";
+  }
+}
+
 function renderPortfolio() {
   const port = portfolio();
   const selectedAsset = getAsset();
@@ -466,7 +487,7 @@ function renderConnectionPanel(port) {
   return `
     <div class="connection-row"><span>Market quotes</span><span>${auth.marketDataProvider || (auth.marketDataConfigured ? "Yahoo Finance" : "Manual only")}</span></div>
     <div class="connection-row"><span>Linked holdings</span><span>${linked}/${port.positions.length}</span></div>
-    <div class="connection-row"><span>Position news</span><span>${auth.newsDataConfigured ? "Alpha Vantage active" : "Alpha key needed"}</span></div>
+    <div class="connection-row"><span>Position news</span><span>${auth.newsDataConfigured ? "Alpha + Yahoo" : "Yahoo fallback"}</span></div>
     <div class="connection-row"><span>Kraken</span><span>API possible: balances/trades</span></div>
     <div class="connection-row"><span>Robinhood</span><span>Official crypto API only</span></div>
     <div class="connection-row"><span>Brokerage import</span><span>Plaid or SnapTrade recommended</span></div>`;
@@ -689,7 +710,7 @@ function renderIntel() {
   const positions = portfolio().positions;
   document.getElementById("watchCount").textContent = String(positions.length);
   document.getElementById("apiKey").value = auth.configured
-    ? (auth.marketDataConfigured ? `${auth.marketDataProvider || "Server quotes"} active` : "Market data unavailable")
+    ? (auth.marketDataConfigured ? `${auth.marketDataProvider || "Server quotes"} + Yahoo news fallback` : "Market data unavailable")
     : (state.apiKey ? "Browser fallback key saved" : "Backend not configured");
   document.getElementById("watchList").innerHTML = positions.map(pos => `<div class="nav-item" data-select-asset="${pos.symbol}"><span class="nav-name">${pos.symbol}</span><span class="nav-count">${pct(pos.dayChangePct)}</span></div>`).join("");
   document.getElementById("newsFeed").innerHTML = state.news.map((item, index) => `
@@ -697,11 +718,54 @@ function renderIntel() {
       <span class="news-num">${String(index + 1).padStart(2, "0")}</span>
       <div>
         <div class="row-meta"><span class="tag stock">${item.symbol}</span><span class="mono muted">${item.source} | ${item.date}</span></div>
-        <h2 class="news-title">${item.url ? `<a href="${item.url}" target="_blank" rel="noreferrer">${item.title}</a>` : item.title}</h2>
+        <h2 class="news-title">${cleanUrl(item.url) ? `<a href="${cleanUrl(item.url)}" target="_blank" rel="noreferrer">${item.title}</a>` : item.title}</h2>
         <div class="news-meta">${item.sentiment || "Neutral"}</div>
       </div>
       <span class="tag ${String(item.sentiment || "neutral").toLowerCase()}">${item.sentiment || "Neutral"}</span>
-    </article>`).join("") || empty("Save an API key and refresh, or add manual intel later.");
+    </article>`).join("") || empty("Refresh Intel to pull Yahoo Finance headlines tied to your current holdings.");
+}
+
+function renderProfile() {
+  const form = document.getElementById("profileForm");
+  const account = document.getElementById("profileAccount");
+  if (!form || !account) return;
+
+  const profile = { ...DEFAULT_PROFILE, ...(state.profile || {}) };
+  if (!form.matches(":focus-within")) {
+    form.elements.displayName.value = profile.displayName;
+    form.elements.email.value = auth.user?.email || "";
+    form.elements.baseCurrency.value = profile.baseCurrency;
+    form.elements.timeZone.value = profile.timeZone;
+    form.elements.investingStyle.value = profile.investingStyle;
+    form.elements.notes.value = profile.notes;
+  }
+
+  const port = portfolio();
+  account.innerHTML = `
+    <div class="profile-stat">
+      <span>Account</span>
+      <strong>${auth.authenticated ? "Signed in" : "Local"}</strong>
+    </div>
+    <div class="profile-stat">
+      <span>Email</span>
+      <strong>${auth.user?.email || "Not signed in"}</strong>
+    </div>
+    <div class="profile-stat">
+      <span>Created</span>
+      <strong>${auth.user?.created_at ? String(auth.user.created_at).slice(0, 10) : "Not available"}</strong>
+    </div>
+    <div class="profile-stat">
+      <span>Portfolio value</span>
+      <strong>${money(port.value)}</strong>
+    </div>
+    <div class="profile-stat">
+      <span>Holdings</span>
+      <strong>${port.positions.length}</strong>
+    </div>
+    <div class="profile-stat">
+      <span>Saved profile</span>
+      <strong>${profile.displayName ? profile.displayName : "Add your name"}</strong>
+    </div>`;
 }
 
 function renderIdeas() {
@@ -851,7 +915,9 @@ function fillAssetForm(symbol) {
 
 function switchTab(tab) {
   document.querySelectorAll(".view").forEach(view => view.classList.remove("active"));
-  document.getElementById(`${tab}View`).classList.add("active");
+  const target = document.getElementById(`${tab}View`);
+  if (!target) return;
+  target.classList.add("active");
   document.querySelectorAll(".t-tab").forEach(btn => btn.classList.toggle("active", btn.dataset.tab === tab));
 }
 
@@ -1099,21 +1165,19 @@ async function refreshChartHistory(range = state.chartRange, silent = false) {
 
 async function refreshNews() {
   if (auth.configured && auth.authenticated) {
-    if (!auth.newsDataConfigured) {
-      setAuthMessage("Quotes are live. Add an Alpha Vantage key for investment news.");
-      return;
-    }
     try {
       const symbols = state.assets
-        .filter(asset => asset.type === "stock" || asset.type === "crypto")
-        .map(asset => asset.symbol)
+        .filter(asset => asset.marketDataLinked !== false && asset.type !== "cash" && asset.type !== "other")
+        .map(asset => asset.marketDataSymbol || asset.symbol)
         .join(",");
+      if (!symbols) return;
       const result = await apiRequest(`market.php?type=news&symbols=${encodeURIComponent(symbols)}`, {
         method: "GET",
         headers: {}
       });
       if (Array.isArray(result.news)) {
         state.news = result.news;
+        setAuthMessage(result.provider ? `Intel refreshed through ${result.provider}.` : "Intel refreshed.");
       }
     } catch (error) {
       setAuthMessage(error.message);
@@ -1123,7 +1187,7 @@ async function refreshNews() {
 
   if (!state.apiKey) return;
   try {
-    const tickers = state.assets.filter(asset => asset.type !== "crypto" && asset.type !== "cash").map(asset => asset.symbol).join(",");
+    const tickers = state.assets.filter(asset => asset.type !== "cash" && asset.type !== "other").map(asset => asset.symbol).join(",");
     const url = `https://www.alphavantage.co/query?function=NEWS_SENTIMENT&tickers=${encodeURIComponent(tickers)}&apikey=${encodeURIComponent(state.apiKey)}`;
     const result = await fetch(url).then(res => res.json());
     if (Array.isArray(result.feed)) {
@@ -1283,6 +1347,21 @@ document.getElementById("ideaForm").addEventListener("submit", event => {
   render();
 });
 
+document.getElementById("profileForm").addEventListener("submit", event => {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(event.currentTarget).entries());
+  state.profile = {
+    displayName: data.displayName.trim(),
+    baseCurrency: data.baseCurrency,
+    timeZone: data.timeZone.trim() || DEFAULT_PROFILE.timeZone,
+    investingStyle: data.investingStyle,
+    notes: data.notes.trim()
+  };
+  const profileMessage = document.getElementById("profileMessage");
+  if (profileMessage) profileMessage.textContent = "Profile saved to your synced workspace.";
+  render();
+});
+
 document.getElementById("taxForm").addEventListener("submit", event => {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(event.currentTarget).entries());
@@ -1297,7 +1376,7 @@ document.getElementById("taxForm").addEventListener("submit", event => {
 
 document.getElementById("saveApiKeyBtn").addEventListener("click", () => {
   if (auth.configured) {
-    alert(auth.newsDataConfigured ? "Server-side quotes and Alpha Vantage news are configured." : "Server-side Yahoo quotes are active. Add alpha_vantage_api_key in public_html/api/config.php for news.");
+    alert(auth.newsDataConfigured ? "Server-side quotes, Alpha Vantage news, and Yahoo fallback are configured." : "Server-side Yahoo quotes and Yahoo Finance news fallback are active. Add alpha_vantage_api_key in public_html/api/config.php later for sentiment-enhanced news.");
     return;
   }
   const key = prompt("Optional local fallback Alpha Vantage key. Prefer server-side config for production.", state.apiKey || "");
