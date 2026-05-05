@@ -402,3 +402,31 @@ textarea { resize: vertical; min-height: 78px; }
 @supports (padding: env(safe-area-inset-bottom)) {
   .modal-overlay { padding-bottom: env(safe-area-inset-bottom); }
 }
+
+/* Sync conflict banner */
+.conflict-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 90;
+  background: linear-gradient(180deg, rgba(201,92,80,.18), rgba(201,92,80,.05));
+  border-bottom: 1px solid rgba(201,92,80,.45);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  padding: max(10px, env(safe-area-inset-top)) 20px 10px;
+  animation: conflict-slide-down .25s ease-out;
+}
+@keyframes conflict-slide-down { from { transform: translateY(-100%); } to { transform: translateY(0); } }
+.conflict-banner-inner { display: flex; align-items: center; justify-content: space-between; gap: 16px; max-width: 1280px; margin: 0 auto; flex-wrap: wrap; }
+.conflict-banner-text { font-size: 13px; color: var(--text); line-height: 1.4; }
+.conflict-banner-text strong { color: var(--red); margin-right: 6px; }
+.conflict-banner-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.conflict-banner-actions .btn { min-height: 36px; padding: 6px 14px; }
+
+@media (max-width: 780px) {
+  .conflict-banner { padding: max(10px, env(safe-area-inset-top)) 14px 10px; }
+  .conflict-banner-inner { flex-direction: column; align-items: stretch; }
+  .conflict-banner-actions { justify-content: stretch; }
+  .conflict-banner-actions .btn { flex: 1; }
+}

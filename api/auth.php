@@ -7,6 +7,7 @@ $body = read_json();
 $action = (string) ($body['action'] ?? '');
 
 if ($action === 'logout') {
+    require_csrf();
     $_SESSION = [];
     if (ini_get('session.use_cookies')) {
         $params = session_get_cookie_params();
@@ -40,8 +41,10 @@ if ($action === 'register') {
         respond(['ok' => false, 'error' => 'That email is already registered.'], 409);
     }
 
+    session_regenerate_id(true);
+    unset($_SESSION['csrf_token']); // force a fresh token bound to the new session id
     $_SESSION['user_id'] = (int) db()->lastInsertId();
-    respond(['ok' => true, 'user' => current_user()]);
+    respond(['ok' => true, 'user' => current_user(), 'csrfToken' => csrf_token()]);
 }
 
 if ($action === 'login') {
@@ -54,8 +57,9 @@ if ($action === 'login') {
     }
 
     session_regenerate_id(true);
+    unset($_SESSION['csrf_token']); // force a fresh token bound to the new session id
     $_SESSION['user_id'] = (int) $user['id'];
-    respond(['ok' => true, 'user' => current_user()]);
+    respond(['ok' => true, 'user' => current_user(), 'csrfToken' => csrf_token()]);
 }
 
 respond(['ok' => false, 'error' => 'Unsupported auth action.'], 400);

@@ -65,6 +65,33 @@ function start_app_session(array $config): void
     session_start();
 }
 
+/**
+ * Returns this session's CSRF token, generating one on first use.
+ * The token rotates whenever the session id rotates (e.g. on login).
+ */
+function csrf_token(): string
+{
+    if (empty($_SESSION['csrf_token'])) {
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    }
+    return (string) $_SESSION['csrf_token'];
+}
+
+/**
+ * Validates the X-CSRF-Token header against the session token.
+ * Call before any mutating action that already has an authenticated session.
+ * Login and register endpoints are intentionally exempt — those are how a
+ * client bootstraps a session in the first place.
+ */
+function require_csrf(): void
+{
+    $expected = $_SESSION['csrf_token'] ?? '';
+    $provided = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+    if ($expected === '' || !hash_equals((string) $expected, (string) $provided)) {
+        respond(['ok' => false, 'error' => 'CSRF token missing or invalid. Reload the page and try again.'], 403);
+    }
+}
+
 function db(): PDO
 {
     static $pdo = null;

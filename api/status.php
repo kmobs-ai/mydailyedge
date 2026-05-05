@@ -25,4 +25,5 @@ respond([
     'marketDataProvider' => !empty($config['alpha_vantage_api_key']) ? 'Yahoo + Alpha Vantage' : 'Yahoo Finance',
     'newsDataConfigured' => !empty($config['alpha_vantage_api_key']),
     'userCount' => $users,
+    'csrfToken' => csrf_token(),
 ]);

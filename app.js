@@ -22,7 +22,9 @@ const seedState = {
 };
 
 let state = loadState();
-let auth = { checked: false, configured: false, authenticated: false, registrationOpen: false, marketDataConfigured: false, marketDataProvider: "", newsDataConfigured: false, user: null, error: "" };
+let auth = { checked: false, configured: false, authenticated: false, registrationOpen: false, marketDataConfigured: false, marketDataProvider: "", newsDataConfigured: false, user: null, error: "", csrfToken: "" };
+let serverStateVersion = 0;
+let pendingConflict = null;
 let syncTimer = null;
 let suppressSync = false;
 
@@ -56,19 +58,69 @@ function removeDemoData(nextState) {
 function saveState() { localStorage.setItem(STORE_KEY, JSON.stringify(state)); scheduleServerSave(); }
 
 async function apiRequest(path, options = {}) {
-  const response = await fetch(`${API_BASE}/${path}`, { credentials: "same-origin", headers: { "Content-Type": "application/json", ...(options.headers || {}) }, ...options });
+  const method = (options.method || "GET").toUpperCase();
+  const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+  // Attach CSRF token on any mutating verb when we have one
+  if (method !== "GET" && auth.csrfToken && !headers["X-CSRF-Token"]) {
+    headers["X-CSRF-Token"] = auth.csrfToken;
+  }
+  const response = await fetch(`${API_BASE}/${path}`, { credentials: "same-origin", headers, ...options, method });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok || data.ok === false) { const err = new Error(data.error || `Request failed (${response.status})`); err.data = data; err.status = response.status; throw err; }
+  if (!response.ok || data.ok === false) {
+    const err = new Error(data.error || `Request failed (${response.status})`);
+    err.data = data;
+    err.status = response.status;
+    throw err;
+  }
   return data;
 }
 
 function scheduleServerSave() { if (suppressSync || !auth.configured || !auth.authenticated) return; clearTimeout(syncTimer); syncTimer = setTimeout(saveServerState, 700); }
-async function saveServerState() { if (!auth.configured || !auth.authenticated) return; try { await apiRequest("state.php", { method: "PUT", body: JSON.stringify({ state }) }); setAuthMessage("Synced to MySQL."); } catch (e) { setAuthMessage(e.message); } }
-async function loadServerState() { const r = await apiRequest("state.php"); if (r.state) { suppressSync = true; state = migrateState({ ...structuredClone(seedState), ...r.state }); localStorage.setItem(STORE_KEY, JSON.stringify(state)); suppressSync = false; } else { await saveServerState(); } }
+async function saveServerState(force = false) {
+  if (!auth.configured || !auth.authenticated) return;
+  try {
+    const versionToSend = force ? "force" : serverStateVersion;
+    const result = await apiRequest("state.php", {
+      method: "PUT",
+      body: JSON.stringify({ state, version: versionToSend })
+    });
+    if (typeof result.version === "number") serverStateVersion = result.version;
+    pendingConflict = null;
+    renderConflictBanner();
+    setAuthMessage("Synced to MySQL.");
+  } catch (e) {
+    if (e.status === 409 && e.data) {
+      // Stash the conflict — frontend banner will let user resolve
+      pendingConflict = {
+        serverVersion: e.data.serverVersion ?? 0,
+        clientVersion: e.data.clientVersion ?? serverStateVersion,
+        message: e.message
+      };
+      renderConflictBanner();
+      setAuthMessage(e.message);
+      return;
+    }
+    setAuthMessage(e.message);
+  }
+}
+async function loadServerState() {
+  const r = await apiRequest("state.php");
+  if (typeof r.version === "number") serverStateVersion = r.version;
+  if (r.state) {
+    suppressSync = true;
+    state = migrateState({ ...structuredClone(seedState), ...r.state });
+    localStorage.setItem(STORE_KEY, JSON.stringify(state));
+    suppressSync = false;
+  } else {
+    await saveServerState();
+  }
+  pendingConflict = null;
+  renderConflictBanner();
+}
 
 async function refreshAuthStatus() {
-  try { const r = await apiRequest("status.php"); auth = { checked: true, configured: Boolean(r.configured), authenticated: Boolean(r.authenticated), registrationOpen: Boolean(r.registrationOpen), marketDataConfigured: Boolean(r.marketDataConfigured), marketDataProvider: r.marketDataProvider || "", newsDataConfigured: Boolean(r.newsDataConfigured), user: r.user || null, error: "" }; }
-  catch (e) { auth = { checked: true, configured: Boolean(e.data?.configured), authenticated: false, registrationOpen: false, marketDataConfigured: false, marketDataProvider: "", newsDataConfigured: false, user: null, error: e.message }; }
+  try { const r = await apiRequest("status.php"); auth = { checked: true, configured: Boolean(r.configured), authenticated: Boolean(r.authenticated), registrationOpen: Boolean(r.registrationOpen), marketDataConfigured: Boolean(r.marketDataConfigured), marketDataProvider: r.marketDataProvider || "", newsDataConfigured: Boolean(r.newsDataConfigured), user: r.user || null, error: "", csrfToken: r.csrfToken || "" }; }
+  catch (e) { auth = { checked: true, configured: Boolean(e.data?.configured), authenticated: false, registrationOpen: false, marketDataConfigured: false, marketDataProvider: "", newsDataConfigured: false, user: null, error: e.message, csrfToken: "" }; }
 }
 
 function setAuthMessage(msg) { const n = document.getElementById("authMessage"); if (n) n.textContent = msg || ""; }
@@ -135,7 +187,7 @@ function estimateTax({ symbol, quantity, price, date, shortRate, longRate }) {
   return { rows, remaining, proceeds: rows.reduce((s, r) => s + r.proceeds, 0), basis: rows.reduce((s, r) => s + r.basis, 0), gain: rows.reduce((s, r) => s + r.gain, 0), tax: rows.reduce((s, r) => s + r.tax, 0) };
 }
 
-function render() { saveState(); renderClock(); renderTopState(); updateAuthGate(); renderOverview(); renderPortfolio(); renderTasks(); renderIntel(); renderIdeas(); renderHistory(); renderProfile(); hydrateSelects(); }
+function render() { saveState(); renderClock(); renderTopState(); updateAuthGate(); renderOverview(); renderPortfolio(); renderTasks(); renderIntel(); renderIdeas(); renderHistory(); renderProfile(); hydrateSelects(); renderConflictBanner(); }
 function renderClock() { document.getElementById("clock").textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }); document.getElementById("overviewTitle").textContent = new Date().toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" }); }
 
 function renderTopState() {
@@ -780,15 +832,64 @@ document.getElementById("showLoginBtn").addEventListener("click", () => { docume
 
 document.getElementById("loginForm").addEventListener("submit", async e => {
   e.preventDefault(); const d = Object.fromEntries(new FormData(e.currentTarget).entries());
-  try { await apiRequest("auth.php", { method: "POST", body: JSON.stringify({ action: "login", email: d.email, password: d.password }) }); await refreshAuthStatus(); await loadServerState(); updateAuthGate(); render(); }
+  try {
+    const result = await apiRequest("auth.php", { method: "POST", body: JSON.stringify({ action: "login", email: d.email, password: d.password }) });
+    if (result.csrfToken) auth.csrfToken = result.csrfToken;
+    await refreshAuthStatus();
+    await loadServerState();
+    updateAuthGate();
+    render();
+  }
   catch (err) { setAuthMessage(err.message); }
 });
 
 document.getElementById("registerForm").addEventListener("submit", async e => {
   e.preventDefault(); const d = Object.fromEntries(new FormData(e.currentTarget).entries());
-  try { await apiRequest("auth.php", { method: "POST", body: JSON.stringify({ action: "register", email: d.email, password: d.password }) }); await refreshAuthStatus(); await saveServerState(); updateAuthGate(); render(); }
+  try {
+    const result = await apiRequest("auth.php", { method: "POST", body: JSON.stringify({ action: "register", email: d.email, password: d.password }) });
+    if (result.csrfToken) auth.csrfToken = result.csrfToken;
+    await refreshAuthStatus();
+    await saveServerState();
+    updateAuthGate();
+    render();
+  }
   catch (err) { setAuthMessage(err.message); }
 });
+
+
+function renderConflictBanner() {
+  let banner = document.getElementById("conflictBanner");
+  if (!pendingConflict) {
+    if (banner) banner.remove();
+    return;
+  }
+  if (!banner) {
+    banner = document.createElement("div");
+    banner.id = "conflictBanner";
+    banner.className = "conflict-banner";
+    document.body.prepend(banner);
+  }
+  banner.innerHTML = `
+    <div class="conflict-banner-inner">
+      <div class="conflict-banner-text">
+        <strong>Sync conflict.</strong> Your data was changed on another device. Reload to see the latest version, or push your local changes anyway.
+      </div>
+      <div class="conflict-banner-actions">
+        <button class="btn btn-ghost" id="conflictReloadBtn" type="button">Reload</button>
+        <button class="btn btn-primary" id="conflictForceBtn" type="button">Save Anyway</button>
+      </div>
+    </div>
+  `;
+  document.getElementById("conflictReloadBtn").onclick = async () => {
+    pendingConflict = null;
+    await loadServerState();
+    render();
+  };
+  document.getElementById("conflictForceBtn").onclick = async () => {
+    await saveServerState(true);
+    render();
+  };
+}
 
 function setupMobileMenu() {
   const btn = document.getElementById("mobileMenuBtn"); const nav = document.getElementById("topbarCenter");
