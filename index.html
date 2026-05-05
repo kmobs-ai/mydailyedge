@@ -2,22 +2,37 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=yes">
+  <meta name="theme-color" content="#0a0a0b">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="DailyEdge">
+  <meta name="format-detection" content="telephone=no">
   <title>My DailyEdge</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="shortcut icon" href="favicon.ico">
+  <link rel="manifest" href="manifest.webmanifest">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@300;400;500&family=Syne:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js" defer></script>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <div class="shell">
     <header class="topbar">
       <button class="wordmark" data-tab="overview" aria-label="My DailyEdge overview">
-        <span class="wordmark-dot"></span>
-        <span>My DailyEdge</span>
+        <img class="wordmark-logo" src="logo.png" alt="" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'wordmark-dot'}))">
+        <span class="wordmark-text">My DailyEdge</span>
       </button>
 
-      <nav class="topbar-center" aria-label="Primary">
+      <button class="mobile-menu-btn" id="mobileMenuBtn" aria-label="Open menu" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+
+      <nav class="topbar-center" id="topbarCenter" aria-label="Primary">
         <button class="t-tab active" data-tab="overview">Overview</button>
         <button class="t-tab" data-tab="portfolio">Portfolio</button>
         <button class="t-tab" data-tab="tasks">Tasks</button>
@@ -58,42 +73,23 @@
 
         <div class="overview-grid">
           <section class="cell span-2">
-            <div class="cell-head">
-              <h2 class="cell-title">Portfolio</h2>
-              <button class="cell-link" data-tab="portfolio">Open</button>
-            </div>
+            <div class="cell-head"><h2 class="cell-title">Portfolio</h2><button class="cell-link" data-tab="portfolio">Open</button></div>
             <div id="overviewPortfolio"></div>
           </section>
-
           <section class="cell">
-            <div class="cell-head">
-              <h2 class="cell-title">Today</h2>
-              <button class="cell-link" data-tab="tasks">Tasks</button>
-            </div>
+            <div class="cell-head"><h2 class="cell-title">Today</h2><button class="cell-link" data-tab="tasks">Tasks</button></div>
             <div id="overviewTasks"></div>
           </section>
-
           <section class="cell">
-            <div class="cell-head">
-              <h2 class="cell-title">Investment Intel</h2>
-              <button class="cell-link" data-tab="intel">Intel</button>
-            </div>
+            <div class="cell-head"><h2 class="cell-title">Investment Intel</h2><button class="cell-link" data-tab="intel">Intel</button></div>
             <div id="overviewIntel"></div>
           </section>
-
           <section class="cell">
-            <div class="cell-head">
-              <h2 class="cell-title">Ideas</h2>
-              <button class="cell-link" data-tab="ideas">Ideas</button>
-            </div>
+            <div class="cell-head"><h2 class="cell-title">Ideas</h2><button class="cell-link" data-tab="ideas">Ideas</button></div>
             <div id="overviewIdeas"></div>
           </section>
-
           <section class="cell">
-            <div class="cell-head">
-              <h2 class="cell-title">History</h2>
-              <button class="cell-link" data-tab="history">History</button>
-            </div>
+            <div class="cell-head"><h2 class="cell-title">History</h2><button class="cell-link" data-tab="history">History</button></div>
             <div id="overviewHistory"></div>
           </section>
         </div>
@@ -132,43 +128,37 @@
                       <button class="range-tab" data-chart-range="ytd">YTD</button>
                       <button class="range-tab" data-chart-range="all">ALL</button>
                     </div>
+                    <div class="range-tabs chart-style-tabs" id="chartStyleTabs">
+                      <button class="range-tab active" data-chart-style="area" title="Area">Area</button>
+                      <button class="range-tab" data-chart-style="line" title="Line">Line</button>
+                      <button class="range-tab" data-chart-style="candle" title="Candles">Candle</button>
+                    </div>
                   </div>
                   <div class="chart-legend">
-                    <span><i class="dot green"></i> Value</span>
-                    <span><i class="dot accent"></i> Cost</span>
+                    <span><i class="dot green"></i> <span id="legendValue">Value</span></span>
+                    <span><i class="dot accent"></i> <span id="legendCost">Cost</span></span>
+                    <span class="chart-stat" id="chartMoveLabel"></span>
                   </div>
                 </div>
-                <svg class="line-chart" id="portfolioChart" viewBox="0 0 700 240" role="img" aria-label="Portfolio value chart"></svg>
+                <div class="chart-canvas" id="portfolioChart" role="img" aria-label="Portfolio value chart"></div>
+                <div class="chart-empty-msg" id="chartEmptyMsg" hidden>No chart history yet. Add a position and click Refresh.</div>
               </section>
 
               <div class="detail-grid">
                 <section class="detail-section">
-                  <div class="cell-head">
-                    <h2 class="cell-title">Lots</h2>
-                    <button class="cell-link" data-open-modal="tradeModal">Add</button>
-                  </div>
+                  <div class="cell-head"><h2 class="cell-title">Lots</h2><button class="cell-link" data-open-modal="tradeModal">Add</button></div>
                   <div id="lotsList"></div>
                 </section>
-
                 <section class="detail-section">
-                  <div class="cell-head">
-                    <h2 class="cell-title">Tax Impact</h2>
-                    <button class="cell-link" data-open-modal="taxModal">Estimate</button>
-                  </div>
+                  <div class="cell-head"><h2 class="cell-title">Tax Impact</h2><button class="cell-link" data-open-modal="taxModal">Estimate</button></div>
                   <div id="taxPreview"></div>
                 </section>
-
                 <section class="detail-section">
-                  <div class="cell-head">
-                    <h2 class="cell-title">Activity</h2>
-                  </div>
+                  <div class="cell-head"><h2 class="cell-title">Activity</h2></div>
                   <div id="activityList"></div>
                 </section>
-
                 <section class="detail-section">
-                  <div class="cell-head">
-                    <h2 class="cell-title">Connections</h2>
-                  </div>
+                  <div class="cell-head"><h2 class="cell-title">Connections</h2></div>
                   <div id="connectionPanel"></div>
                 </section>
               </div>
@@ -180,10 +170,7 @@
       <section class="view" id="tasksView" aria-labelledby="tasksTitle">
         <div class="split-layout three-col">
           <aside class="panel compact-panel">
-            <div class="panel-head">
-              <span class="sec-label">Task Filters</span>
-              <span class="sec-badge" id="taskCount">0</span>
-            </div>
+            <div class="panel-head"><span class="sec-label">Task Filters</span><span class="sec-badge" id="taskCount">0</span></div>
             <div id="taskFilters" class="nav-list"></div>
             <div class="panel-stats" id="taskStats"></div>
           </aside>
@@ -204,10 +191,7 @@
       <section class="view" id="intelView" aria-labelledby="intelTitle">
         <div class="split-layout intel-layout">
           <aside class="panel compact-panel">
-            <div class="panel-head">
-              <span class="sec-label">Watchlist</span>
-              <span class="sec-badge" id="watchCount">0</span>
-            </div>
+            <div class="panel-head"><span class="sec-label">Watchlist</span><span class="sec-badge" id="watchCount">0</span></div>
             <div id="watchList" class="nav-list"></div>
             <div class="panel-stats">
               <button class="btn btn-primary full" id="refreshNewsBtn">Refresh Intel</button>
@@ -216,7 +200,7 @@
           <section class="workspace">
             <div class="workspace-head">
               <div>
-                <p class="hero-eyebrow">News tied to your positions</p>
+                <p class="hero-eyebrow">News tied to your positions and markets</p>
                 <h1 class="section-title" id="intelTitle">Investment Intel</h1>
               </div>
               <div class="provider-box">
@@ -224,6 +208,13 @@
                 <input id="apiKey" type="text" readonly placeholder="Server key not configured">
                 <button class="btn btn-ghost" id="saveApiKeyBtn">Status</button>
               </div>
+            </div>
+            <div class="list-toolbar news-toolbar">
+              <button class="filter-tab active" data-news-filter="all">All</button>
+              <button class="filter-tab" data-news-filter="portfolio">Portfolio</button>
+              <button class="filter-tab" data-news-filter="crypto">Crypto</button>
+              <button class="filter-tab" data-news-filter="markets">Markets</button>
+              <button class="filter-tab" data-news-filter="research">Research</button>
             </div>
             <div class="news-feed" id="newsFeed"></div>
           </section>
@@ -233,10 +224,7 @@
       <section class="view" id="ideasView" aria-labelledby="ideasTitle">
         <div class="split-layout three-col">
           <aside class="panel compact-panel">
-            <div class="panel-head">
-              <span class="sec-label">Idea Stages</span>
-              <span class="sec-badge" id="ideaCount">0</span>
-            </div>
+            <div class="panel-head"><span class="sec-label">Idea Stages</span><span class="sec-badge" id="ideaCount">0</span></div>
             <div id="ideaFilters" class="nav-list"></div>
             <div class="panel-stats" id="ideaStats"></div>
           </aside>
@@ -257,13 +245,8 @@
       <section class="view" id="historyView" aria-labelledby="historyTitle">
         <div class="split-layout history-layout">
           <aside class="panel compact-panel">
-            <div class="panel-head">
-              <span class="sec-label">Snapshots</span>
-              <span class="sec-badge" id="historyCount">0</span>
-            </div>
-            <div class="toolbar-row">
-              <button class="btn btn-primary full" id="historySnapshotBtn">Capture Today</button>
-            </div>
+            <div class="panel-head"><span class="sec-label">Snapshots</span><span class="sec-badge" id="historyCount">0</span></div>
+            <div class="toolbar-row"><button class="btn btn-primary full" id="historySnapshotBtn">Capture Today</button></div>
             <div class="position-list" id="historyList"></div>
           </aside>
           <section class="workspace" id="historyDetail"></section>
@@ -304,16 +287,11 @@
               </div>
               <label>Notes<textarea name="notes" rows="5" placeholder="Portfolio goals, constraints, tax notes, broker reminders"></textarea></label>
               <div class="modal-note" id="profileMessage">Profile details are saved with your synced workspace data.</div>
-              <div class="modal-actions">
-                <button class="btn btn-primary" type="submit">Save Profile</button>
-              </div>
+              <div class="modal-actions"><button class="btn btn-primary" type="submit">Save Profile</button></div>
             </form>
           </section>
           <aside class="panel profile-side">
-            <div class="panel-head">
-              <span class="sec-label">Account</span>
-              <span class="sec-badge">Private</span>
-            </div>
+            <div class="panel-head"><span class="sec-label">Account</span><span class="sec-badge">Private</span></div>
             <div class="profile-account" id="profileAccount"></div>
           </aside>
         </div>
@@ -323,7 +301,7 @@
 
   <div class="auth-overlay" id="authGate" hidden>
     <div class="auth-panel">
-      <div class="wordmark auth-wordmark"><span class="wordmark-dot"></span><span>My DailyEdge</span></div>
+      <div class="wordmark auth-wordmark"><img class="wordmark-logo" src="logo.png" alt="" onerror="this.replaceWith(Object.assign(document.createElement('span'),{className:'wordmark-dot'}))"><span class="wordmark-text">My DailyEdge</span></div>
       <p class="hero-eyebrow">Private workspace</p>
       <h1>Sign in to sync your data</h1>
       <p class="auth-copy">Your portfolio, tasks, ideas, intel, and daily snapshots are stored in your MySQL database once you sign in.</p>

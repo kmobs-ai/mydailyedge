@@ -6,13 +6,27 @@ My DailyEdge is a dark, minimal personal operating app for investments, tasks, i
 
 - Portfolio positions with assets, prices, target weights, trade history, open lots, cost basis, allocation, and P&L.
 - Asset lookup from the Portfolio form that links new stock, ETF, fund, and supported crypto holdings to server-side market data.
+- Interactive price charts powered by TradingView Lightweight Charts — Area, Line, and Candle styles with hover crosshair, mobile pinch/zoom, and a smooth dark theme.
+- Multi-source investment intel: The Block, CoinDesk, Cointelegraph, Yahoo Finance RSS, plus per-ticker Alpha Vantage / Yahoo headlines, all merged with filters (All, Portfolio, Crypto, Markets, Research).
 - Buy/sell/deposit/withdraw activity stored locally in the browser.
 - FIFO tax impact estimator for potential sales with configurable short-term and long-term rates.
-- Investment intel tied to held symbols.
 - Tasks and ideas with filters, detail panels, and local persistence.
 - History snapshots that store daily portfolio value, P&L, tasks, ideas, positions, and a generated daily report.
 - Import/export JSON backup.
 - Optional PHP/MySQL login and server sync for private data storage.
+- Mobile-first responsive layout — slide-down nav drawer, iOS safe-area insets, bottom-sheet modals, 44px touch targets, PWA manifest for "Add to Home Screen" on iOS and Android.
+
+## Logo and favicon assets
+
+Drop these PNGs into the project root next to `index.html`. The app references them by these exact filenames:
+
+- `logo.png` — header logo (recommended ~256×256, transparent background)
+- `favicon.png` — browser tab icon (recommended 192×192, transparent background)
+- `favicon.ico` — legacy fallback (16×16 + 32×32 multi-size .ico)
+- `apple-touch-icon.png` — iOS home screen (180×180, opaque background, no rounded corners — iOS adds them)
+- `icon-512.png` — Android home screen / PWA splash (512×512, opaque)
+
+If `logo.png` is missing, the header gracefully falls back to a small accent-colored dot.
 
 ## Live data
 
