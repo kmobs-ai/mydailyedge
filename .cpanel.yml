@@ -6,6 +6,13 @@ deployment:
     - /bin/cp -f styles.css $DEPLOYPATH
     - /bin/cp -f app.js $DEPLOYPATH
     - /bin/cp -f .htaccess $DEPLOYPATH
+    - /bin/cp -f manifest.webmanifest $DEPLOYPATH
+    - /bin/cp -f logo.png $DEPLOYPATH
+    - /bin/cp -f wordmark.png $DEPLOYPATH
+    - /bin/cp -f favicon.png $DEPLOYPATH
+    - /bin/cp -f favicon.ico $DEPLOYPATH
+    - /bin/cp -f apple-touch-icon.png $DEPLOYPATH
+    - /bin/cp -f icon-512.png $DEPLOYPATH
     - /bin/mkdir -p ${DEPLOYPATH}api
     - /bin/cp -f api/_bootstrap.php ${DEPLOYPATH}api/
     - /bin/cp -f api/status.php ${DEPLOYPATH}api/
