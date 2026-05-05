@@ -1,23 +1,6 @@
-CREATE TABLE IF NOT EXISTS users (
-  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  email VARCHAR(190) NOT NULL,
-  password_hash VARCHAR(255) NOT NULL,
-  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (id),
-  UNIQUE KEY users_email_unique (email)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-
-CREATE TABLE IF NOT EXISTS user_state (
-  user_id BIGINT UNSIGNED NOT NULL,
-  state_json LONGTEXT NOT NULL,
-  version BIGINT UNSIGNED NOT NULL DEFAULT 0,
-  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (user_id),
-  CONSTRAINT user_state_user_id_foreign
-    FOREIGN KEY (user_id) REFERENCES users (id)
-    ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- Price alerts: per-user, per-symbol thresholds with status tracking.
+-- Run on existing installs:
+--   mysql -u <user> -p <db_name> < database/migrations/0002_create_alerts.sql
 
 CREATE TABLE IF NOT EXISTS alerts (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

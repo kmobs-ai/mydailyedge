@@ -85,6 +85,26 @@ The GitHub Actions example uploads `index.html`, `styles.css`, `app.js`, and `.h
 
 When you want real accounts, private market-data keys, scheduled daily reports, and server-side history, add a backend. On GoDaddy Web Hosting (cPanel), PHP plus MySQL is the most natural fit because cPanel supports PHP, MySQL, cron jobs, and `mod_rewrite`. If you prefer a modern Git-first workflow, host the app on Vercel, Netlify, or Cloudflare Pages and point GoDaddy DNS for `mydailyedge.io` there.
 
+
+## Price alerts cron setup
+
+The alerts evaluator runs as a cron job. In cPanel:
+
+1. Open **Cron Jobs**.
+2. Add a new entry:
+   - **Common settings**: Every 15 minutes (`*/15 * * * *`)
+   - **Command**: `/usr/bin/php /home/<your-cpanel-user>/public_html/api/cron/check-alerts.php >> /home/<your-cpanel-user>/cron-alerts.log 2>&1`
+3. Replace `<your-cpanel-user>` with your actual cPanel username (the same one in `.cpanel.yml`'s `DEPLOYPATH`).
+
+Active alerts are evaluated against the latest Yahoo Finance quote on each run.
+Triggered alerts show as a banner inside the app on next refresh.
+
+If you can't add a cron job for some reason, the script also accepts an HTTP
+trigger: set `'cron_secret' => 'a-long-random-string'` in `api/config.php`,
+then have any external scheduler (cron-job.org, GitHub Actions schedule, etc.)
+hit `https://mydailyedge.io/api/cron/check-alerts.php?secret=a-long-random-string`
+every 15 minutes.
+
 ## MySQL login setup on cPanel
 
 The frontend works in local browser mode until the backend is configured. To enable login and MySQL sync:

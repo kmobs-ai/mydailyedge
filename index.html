@@ -37,6 +37,7 @@
         <button class="t-tab" data-tab="portfolio">Portfolio</button>
         <button class="t-tab" data-tab="tasks">Tasks</button>
         <button class="t-tab" data-tab="intel">Intel</button>
+        <button class="t-tab" data-tab="alerts">Alerts</button>
         <button class="t-tab" data-tab="ideas">Ideas</button>
         <button class="t-tab" data-tab="history">History</button>
         <button class="t-tab" data-tab="profile">Profile</button>
@@ -217,6 +218,38 @@
               <button class="filter-tab" data-news-filter="research">Research</button>
             </div>
             <div class="news-feed" id="newsFeed"></div>
+          </section>
+        </div>
+      </section>
+
+      
+      <section class="view" id="alertsView" aria-labelledby="alertsTitle">
+        <div class="split-layout intel-layout">
+          <aside class="panel compact-panel">
+            <div class="panel-head">
+              <span class="sec-label">Alerts</span>
+              <span class="sec-badge" id="alertCount">0</span>
+            </div>
+            <div id="alertFilters" class="nav-list"></div>
+            <div class="panel-stats">
+              <button class="btn btn-primary full" data-open-modal="alertModal">Add Alert</button>
+            </div>
+          </aside>
+          <section class="workspace">
+            <div class="workspace-head">
+              <div>
+                <p class="hero-eyebrow">Price thresholds checked every 15 minutes</p>
+                <h1 class="section-title" id="alertsTitle">Price Alerts</h1>
+              </div>
+            </div>
+            <div class="list-toolbar">
+              <button class="filter-tab active" data-alert-filter="active">Active</button>
+              <button class="filter-tab" data-alert-filter="triggered">Triggered</button>
+              <button class="filter-tab" data-alert-filter="paused">Paused</button>
+              <button class="filter-tab" data-alert-filter="all">All</button>
+              <button class="btn btn-primary" data-open-modal="alertModal">Add Alert</button>
+            </div>
+            <div class="list-scroll" id="alertsList"></div>
           </section>
         </div>
       </section>
@@ -445,6 +478,38 @@
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" data-close-modal>Cancel</button>
         <button class="btn btn-primary" type="submit">Save Idea</button>
+      </div>
+    </form>
+  </div>
+
+
+  <div class="modal-overlay" id="alertModal" aria-hidden="true">
+    <form class="modal" id="alertForm">
+      <input type="hidden" name="alertId" value="">
+      <div class="modal-head">
+        <h2 class="modal-title" id="alertModalTitle">New Price Alert</h2>
+        <button type="button" class="modal-close" data-close-modal>&times;</button>
+      </div>
+      <div class="form-grid">
+        <label>Symbol<input name="symbol" id="alertSymbol" required placeholder="AAPL"></label>
+        <label>Direction
+          <select name="direction" id="alertDirection">
+            <option value="above">Price rises above</option>
+            <option value="below">Price falls below</option>
+            <option value="pct_up">Gains % from now</option>
+            <option value="pct_down">Drops % from now</option>
+          </select>
+        </label>
+        <label>Threshold<input name="threshold" type="number" step="0.0001" required placeholder="200"></label>
+        <label class="alert-baseline-row" hidden>Baseline price<input name="baseline" type="number" step="0.0001" placeholder="auto from current quote"></label>
+        <label class="wide">Note<input name="note" placeholder="Why this alert matters" maxlength="500"></label>
+      </div>
+      <label class="checkbox-row"><input type="checkbox" name="notifyEmail" checked> Send email when triggered</label>
+      <label class="checkbox-row"><input type="checkbox" name="notifyPush"> Send browser push (set up later)</label>
+      <div class="modal-note">Alerts are evaluated every 15 minutes by the server cron job. Triggered alerts show as a banner at the top of the app.</div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" data-close-modal>Cancel</button>
+        <button class="btn btn-primary" type="submit">Save Alert</button>
       </div>
     </form>
   </div>

@@ -15,7 +15,7 @@ const DEFAULT_PROFILE = { displayName: "", baseCurrency: "USD", timeZone: "Ameri
 
 const seedState = {
   selectedSymbol: null, selectedTaskId: null, selectedIdeaId: null, selectedSnapshotId: null,
-  taskFilter: "open", ideaFilter: "all", newsFilter: "all",
+  taskFilter: "open", ideaFilter: "all", newsFilter: "all", alertFilter: "active",
   chartMode: "asset", chartRange: "1m", chartStyle: "area",
   apiKey: "", assets: [], trades: [], tasks: [], ideas: [], news: [], snapshots: [], priceHistory: {},
   profile: { ...DEFAULT_PROFILE }, demoCleanupVersion: DEMO_CLEANUP_VERSION
@@ -34,6 +34,7 @@ function loadState() { const stored = localStorage.getItem(STORE_KEY); if (!stor
 function migrateState(nextState) {
   nextState.priceHistory ||= {};
   nextState.chartMode ||= "asset"; nextState.chartRange ||= "1m"; nextState.chartStyle ||= "area"; nextState.newsFilter ||= "all";
+  nextState.alertFilter ||= "active";
   nextState.profile = { ...DEFAULT_PROFILE, ...(nextState.profile || {}) };
   const hasDemoAssets = Array.isArray(nextState.assets) && nextState.assets.some(a => DEMO_SYMBOLS.has(a.symbol));
   const hasDemoTradeIds = Array.isArray(nextState.trades) && nextState.trades.some(t => /^t[1-7]$/.test(String(t.id)));
@@ -187,7 +188,7 @@ function estimateTax({ symbol, quantity, price, date, shortRate, longRate }) {
   return { rows, remaining, proceeds: rows.reduce((s, r) => s + r.proceeds, 0), basis: rows.reduce((s, r) => s + r.basis, 0), gain: rows.reduce((s, r) => s + r.gain, 0), tax: rows.reduce((s, r) => s + r.tax, 0) };
 }
 
-function render() { saveState(); renderClock(); renderTopState(); updateAuthGate(); renderOverview(); renderPortfolio(); renderTasks(); renderIntel(); renderIdeas(); renderHistory(); renderProfile(); hydrateSelects(); renderConflictBanner(); }
+function render() { saveState(); renderClock(); renderTopState(); updateAuthGate(); renderOverview(); renderPortfolio(); renderTasks(); renderIntel(); renderIdeas(); renderHistory(); renderProfile(); renderAlerts(); hydrateSelects(); renderConflictBanner(); renderAlertBanner(); }
 function renderClock() { document.getElementById("clock").textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }); document.getElementById("overviewTitle").textContent = new Date().toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" }); }
 
 function renderTopState() {
@@ -517,6 +518,155 @@ function renderIntel() {
   }).join("") || empty("Refresh Intel to pull headlines from The Block, CoinDesk, Cointelegraph, Yahoo Finance, and your tickers.");
 }
 
+
+let alertsCache = [];
+let alertsLoading = false;
+
+async function loadAlerts() {
+  if (!auth.configured || !auth.authenticated) { alertsCache = []; return; }
+  alertsLoading = true;
+  try {
+    const r = await apiRequest("alerts.php");
+    alertsCache = Array.isArray(r.alerts) ? r.alerts : [];
+  } catch (e) {
+    setAuthMessage(e.message);
+  } finally {
+    alertsLoading = false;
+  }
+}
+
+function unacknowledgedTriggered() {
+  return alertsCache.filter(a => a.status === "triggered");
+}
+
+function renderAlertBanner() {
+  const triggered = unacknowledgedTriggered();
+  let banner = document.getElementById("alertBanner");
+  if (!triggered.length) { if (banner) banner.remove(); return; }
+  if (!banner) {
+    banner = document.createElement("div");
+    banner.id = "alertBanner";
+    banner.className = "alert-banner";
+    document.body.prepend(banner);
+  }
+  const sample = triggered[0];
+  const more = triggered.length - 1;
+  banner.innerHTML = `
+    <div class="alert-banner-inner">
+      <div class="alert-banner-text">
+        <strong>Price alert.</strong>
+        ${sample.symbol} ${sample.direction.replace("_", " ")} ${sample.threshold} \u2014 hit at ${money2(sample.triggeredPrice || 0)}.
+        ${more > 0 ? `<span class="muted">+${more} more triggered</span>` : ""}
+      </div>
+      <div class="alert-banner-actions">
+        <button class="btn btn-ghost" type="button" data-tab="alerts">View</button>
+        <button class="btn btn-primary" type="button" id="alertBannerAck">Dismiss All</button>
+      </div>
+    </div>`;
+  document.getElementById("alertBannerAck").onclick = async () => {
+    for (const a of triggered) {
+      try { await apiRequest("alerts.php", { method: "POST", body: JSON.stringify({ action: "acknowledge", id: a.id }) }); } catch (e) { /* keep going */ }
+    }
+    await loadAlerts();
+    render();
+  };
+}
+
+function filterAlerts(filter) {
+  if (filter === "active")    return alertsCache.filter(a => a.status === "active");
+  if (filter === "triggered") return alertsCache.filter(a => a.status === "triggered" || a.status === "dismissed");
+  if (filter === "paused")    return alertsCache.filter(a => a.status === "paused");
+  return alertsCache;
+}
+
+function describeCondition(a) {
+  if (a.direction === "above") return `Price \u2265 ${money2(a.threshold)}`;
+  if (a.direction === "below") return `Price \u2264 ${money2(a.threshold)}`;
+  if (a.direction === "pct_up") return `Gain \u2265 ${a.threshold}% from ${money2(a.baseline || 0)}`;
+  if (a.direction === "pct_down") return `Drop \u2265 ${a.threshold}% from ${money2(a.baseline || 0)}`;
+  return a.direction;
+}
+
+function renderAlerts() {
+  const filters = [["active", "Active"], ["triggered", "Triggered"], ["paused", "Paused"], ["all", "All"]];
+  const cnt = document.getElementById("alertCount");
+  const navEl = document.getElementById("alertFilters");
+  if (cnt) cnt.textContent = String(alertsCache.length);
+  if (navEl) navEl.innerHTML = filters.map(([id, label]) => `<div class="nav-item ${state.alertFilter === id ? "active" : ""}" data-alert-filter="${id}"><span class="nav-name">${label}</span><span class="nav-count">${filterAlerts(id).length}</span></div>`).join("");
+  document.querySelectorAll("[data-alert-filter]").forEach(b => b.classList.toggle("active", b.dataset.alertFilter === state.alertFilter));
+
+  const list = document.getElementById("alertsList");
+  if (!list) return;
+  const items = filterAlerts(state.alertFilter || "active");
+  if (!items.length) {
+    list.innerHTML = empty(alertsCache.length ? "No alerts in this filter." : (auth.authenticated ? "No alerts yet. Click Add Alert to create one." : "Sign in to set price alerts."));
+    return;
+  }
+  list.innerHTML = items.map(a => `
+    <div class="alert-row ${a.status}">
+      <div>
+        <div class="alert-symbol">${a.symbol}</div>
+        <div class="alert-meta"><span class="alert-status-pill ${a.status}">${a.status}</span></div>
+      </div>
+      <div>
+        <div class="alert-condition">${describeCondition(a)}</div>
+        ${a.note ? `<div class="muted small">${a.note}</div>` : ""}
+        <div class="alert-meta">
+          ${a.notifyEmail ? '<span>Email</span>' : ""}
+          ${a.notifyPush ? '<span>Push</span>' : ""}
+          ${a.triggeredAt ? `<span>Hit ${money2(a.triggeredPrice || 0)} at ${a.triggeredAt.slice(0, 16).replace("T", " ")}</span>` : `<span>Created ${(a.createdAt || "").slice(0, 10)}</span>`}
+        </div>
+      </div>
+      <div class="alert-actions">
+        ${a.status === "active" ? `<button class="btn btn-ghost" data-alert-action="pause" data-alert-id="${a.id}">Pause</button>` : ""}
+        ${a.status === "paused" ? `<button class="btn btn-ghost" data-alert-action="resume" data-alert-id="${a.id}">Resume</button>` : ""}
+        ${a.status === "triggered" ? `<button class="btn btn-ghost" data-alert-action="acknowledge" data-alert-id="${a.id}">Dismiss</button>` : ""}
+        ${a.status === "triggered" || a.status === "dismissed" ? `<button class="btn btn-ghost" data-alert-action="reset" data-alert-id="${a.id}">Reset</button>` : ""}
+        <button class="btn btn-danger" data-alert-action="delete" data-alert-id="${a.id}">Delete</button>
+      </div>
+    </div>
+  `).join("");
+}
+
+async function handleAlertAction(action, id) {
+  try {
+    await apiRequest("alerts.php", { method: "POST", body: JSON.stringify({ action, id }) });
+    await loadAlerts();
+    render();
+  } catch (e) {
+    setAuthMessage(e.message);
+  }
+}
+
+async function submitAlertForm(form) {
+  const data = Object.fromEntries(new FormData(form).entries());
+  // For pct_up/pct_down, baseline defaults to current quote of the symbol if user left it blank
+  const symbol = (data.symbol || "").trim().toUpperCase();
+  let baseline = data.baseline ? Number(data.baseline) : null;
+  if ((data.direction === "pct_up" || data.direction === "pct_down") && !baseline) {
+    const asset = state.assets.find(a => a.symbol === symbol);
+    baseline = asset ? Number(asset.price || 0) : null;
+  }
+  const payload = {
+    action: "create",
+    symbol,
+    direction: data.direction,
+    threshold: Number(data.threshold || 0),
+    baseline,
+    note: (data.note || "").trim() || null,
+    notifyEmail: !!data.notifyEmail,
+    notifyPush: !!data.notifyPush
+  };
+  try {
+    await apiRequest("alerts.php", { method: "POST", body: JSON.stringify(payload) });
+    await loadAlerts();
+    closeModals();
+    render();
+  } catch (e) {
+    setAuthMessage(e.message);
+  }
+}
+
 function renderProfile() {
   const form = document.getElementById("profileForm"); const account = document.getElementById("profileAccount");
   if (!form || !account) return;
@@ -754,6 +904,19 @@ document.addEventListener("click", event => {
   if (chartRange) { state.chartRange = chartRange; render(); refreshChartHistory(chartRange, true).then(render); }
   const chartStyle = event.target.closest("[data-chart-style]")?.dataset.chartStyle;
   if (chartStyle) { state.chartStyle = chartStyle; render(); }
+  const alertFilter = event.target.closest("[data-alert-filter]")?.dataset.alertFilter;
+  if (alertFilter) { state.alertFilter = alertFilter; render(); }
+
+  const alertActionEl = event.target.closest("[data-alert-action]");
+  if (alertActionEl) {
+    const action = alertActionEl.dataset.alertAction;
+    const id = Number(alertActionEl.dataset.alertId);
+    if (id) {
+      if (action === "delete" && !confirm("Delete this alert?")) return;
+      handleAlertAction(action, id);
+    }
+  }
+
   const newsFilter = event.target.closest("[data-news-filter]")?.dataset.newsFilter;
   if (newsFilter) { state.newsFilter = newsFilter; render(); }
   const symbol = event.target.closest("[data-select-asset]")?.dataset.selectAsset;
@@ -789,6 +952,14 @@ document.getElementById("assetLookupBtn").addEventListener("click", lookupAssetM
 document.getElementById("tradeForm").addEventListener("submit", e => { e.preventDefault(); recordTrade(e.currentTarget); e.currentTarget.reset(); closeModals(); render(); });
 document.getElementById("taskForm").addEventListener("submit", e => { e.preventDefault(); addTask(e.currentTarget); e.currentTarget.reset(); closeModals(); render(); });
 document.getElementById("ideaForm").addEventListener("submit", e => { e.preventDefault(); addIdea(e.currentTarget); e.currentTarget.reset(); closeModals(); render(); });
+document.getElementById("alertForm").addEventListener("submit", e => { e.preventDefault(); submitAlertForm(e.currentTarget).then(() => e.currentTarget.reset()); });
+
+// Show/hide baseline field based on direction
+document.getElementById("alertDirection").addEventListener("change", e => {
+  const isPct = e.target.value === "pct_up" || e.target.value === "pct_down";
+  const row = document.querySelector(".alert-baseline-row");
+  if (row) row.hidden = !isPct;
+});
 document.getElementById("profileForm").addEventListener("submit", e => {
   e.preventDefault(); const d = Object.fromEntries(new FormData(e.currentTarget).entries());
   state.profile = { displayName: d.displayName.trim(), baseCurrency: d.baseCurrency, timeZone: d.timeZone.trim() || DEFAULT_PROFILE.timeZone, investingStyle: d.investingStyle, notes: d.notes.trim() };
@@ -903,10 +1074,11 @@ function setupMobileMenu() {
 
 async function initApp() {
   setupMobileMenu(); renderClock(); await refreshAuthStatus();
-  if (auth.configured && auth.authenticated) { await loadServerState(); await refreshChartHistory(state.chartRange, true); }
+  if (auth.configured && auth.authenticated) { await loadServerState(); await refreshChartHistory(state.chartRange, true); await loadAlerts(); }
   render();
 }
 
 setInterval(renderClock, 1000);
 setInterval(() => { if (auth.configured && auth.authenticated && state.assets.length && !document.hidden) refreshLiveData(true); }, 300000);
+setInterval(async () => { if (auth.configured && auth.authenticated && !document.hidden) { await loadAlerts(); renderAlerts(); renderAlertBanner(); } }, 60000);
 initApp();

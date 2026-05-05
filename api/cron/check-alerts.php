@@ -1,0 +1,153 @@
+<?php
+declare(strict_types=1);
+
+// Cron worker: evaluates active alerts against current market prices.
+// Suggested cPanel cron: */15 * * * * /usr/bin/php /home/<user>/public_html/api/cron/check-alerts.php
+//
+// This script:
+//   1. Loads all active alerts grouped by symbol.
+//   2. Fetches the current Yahoo Finance quote for each unique symbol once.
+//   3. Evaluates each alert's direction + threshold against the latest price.
+//   4. Marks triggered alerts and stamps triggered_at + triggered_price.
+//   5. Stubs notify_email / notify_push dispatch — wired by phase-2 work.
+
+declare(ticks=1);
+ini_set('display_errors', '0');
+ini_set('log_errors', '1');
+
+if (PHP_SAPI !== 'cli' && empty($_GET['secret'])) {
+    // Allow CLI invocation freely; require a shared-secret query param if hit over HTTP.
+    http_response_code(403);
+    echo "forbidden\n";
+    exit;
+}
+
+$root = realpath(__DIR__ . '/..');
+$configPath = $root . '/config.php';
+if (!is_file($configPath)) {
+    fwrite(STDERR, "[alerts] missing api/config.php — refusing to run\n");
+    exit(1);
+}
+$config = require $configPath;
+
+if (PHP_SAPI !== 'cli') {
+    $expected = (string) ($config['cron_secret'] ?? '');
+    if ($expected === '' || !hash_equals($expected, (string) ($_GET['secret'] ?? ''))) {
+        http_response_code(403);
+        echo "forbidden\n";
+        exit;
+    }
+}
+
+// --- DB connection ---
+try {
+    $pdo = new PDO(
+        sprintf('mysql:host=%s;dbname=%s;charset=utf8mb4', $config['db_host'], $config['db_name']),
+        $config['db_user'],
+        $config['db_pass'],
+        [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]
+    );
+} catch (PDOException $e) {
+    fwrite(STDERR, "[alerts] db connect failed: " . $e->getMessage() . "\n");
+    exit(1);
+}
+
+// --- Load active alerts ---
+$rows = $pdo->query('SELECT a.*, u.email AS user_email FROM alerts a INNER JOIN users u ON u.id = a.user_id WHERE a.status = "active"')->fetchAll();
+if (!$rows) {
+    echo "[alerts] no active alerts to check\n";
+    exit(0);
+}
+
+// --- Fetch quotes per unique symbol ---
+$symbols = array_unique(array_map(static fn($r) => strtoupper($r['symbol']), $rows));
+$quotes = [];
+$cryptoSet = ['BTC','ETH','SOL','ADA','XRP','DOGE','AVAX','LINK','LTC','BCH'];
+
+foreach ($symbols as $symbol) {
+    $yahooSymbol = in_array($symbol, $cryptoSet, true) ? $symbol . '-USD' : $symbol;
+    $url = 'https://query1.finance.yahoo.com/v8/finance/chart/' . rawurlencode($yahooSymbol) . '?range=1d&interval=1d';
+    $raw = false;
+    if (function_exists('curl_init')) {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_TIMEOUT => 8,
+            CURLOPT_HTTPHEADER => ['Accept: application/json', 'User-Agent: MyDailyEdge-Cron/1.0'],
+        ]);
+        $raw = curl_exec($ch);
+        curl_close($ch);
+    } else {
+        $ctx = stream_context_create(['http' => ['timeout' => 8, 'header' => "Accept: application/json\r\nUser-Agent: MyDailyEdge-Cron/1.0\r\n"]]);
+        $raw = @file_get_contents($url, false, $ctx);
+    }
+    if ($raw === false) continue;
+    $decoded = json_decode($raw, true);
+    $price = (float) ($decoded['chart']['result'][0]['meta']['regularMarketPrice'] ?? 0);
+    if ($price > 0) $quotes[$symbol] = $price;
+}
+
+echo "[alerts] checking " . count($rows) . " alert(s) across " . count($quotes) . " quote(s)\n";
+
+// --- Evaluate ---
+$markTriggered = $pdo->prepare(
+    'UPDATE alerts SET status = "triggered", triggered_at = CURRENT_TIMESTAMP, triggered_price = ? WHERE id = ? AND status = "active"'
+);
+$dispatchQueue = [];
+
+foreach ($rows as $row) {
+    $symbol = strtoupper($row['symbol']);
+    $price = $quotes[$symbol] ?? null;
+    if ($price === null) continue;
+
+    $direction = (string) $row['direction'];
+    $threshold = (float) $row['threshold'];
+    $baseline  = $row['baseline'] !== null ? (float) $row['baseline'] : null;
+
+    $triggered = false;
+    if ($direction === 'above') {
+        $triggered = $price >= $threshold;
+    } elseif ($direction === 'below') {
+        $triggered = $price <= $threshold;
+    } elseif ($direction === 'pct_up' && $baseline !== null && $baseline > 0) {
+        $triggered = (($price - $baseline) / $baseline * 100) >= $threshold;
+    } elseif ($direction === 'pct_down' && $baseline !== null && $baseline > 0) {
+        $triggered = (($baseline - $price) / $baseline * 100) >= $threshold;
+    }
+
+    if (!$triggered) continue;
+
+    $markTriggered->execute([$price, (int) $row['id']]);
+    if ($markTriggered->rowCount() === 0) continue; // race-lost or already triggered
+
+    echo sprintf("[alerts] TRIGGERED #%d %s %s %s @ %s (price %s)\n",
+        $row['id'], $symbol, $direction, $threshold, date('c'), $price);
+
+    $dispatchQueue[] = [
+        'alert_id' => (int) $row['id'],
+        'user_id' => (int) $row['user_id'],
+        'user_email' => (string) $row['user_email'],
+        'symbol' => $symbol,
+        'direction' => $direction,
+        'threshold' => $threshold,
+        'price' => $price,
+        'note' => $row['note'],
+        'notify_email' => (bool) $row['notify_email'],
+        'notify_push' => (bool) $row['notify_push'],
+    ];
+}
+
+// --- Notification dispatch (stubbed for now; phase 2 wires SMTP, phase 3 wires Web Push) ---
+foreach ($dispatchQueue as $item) {
+    if ($item['notify_email']) {
+        // TODO: call send_alert_email($item) — added in the email phase
+        echo "[alerts]   email queued for {$item['user_email']} re {$item['symbol']}\n";
+    }
+    if ($item['notify_push']) {
+        // TODO: call send_alert_push($item) — added in the push phase
+        echo "[alerts]   push queued for user {$item['user_id']} re {$item['symbol']}\n";
+    }
+}
+
+echo "[alerts] done. " . count($dispatchQueue) . " new trigger(s).\n";
