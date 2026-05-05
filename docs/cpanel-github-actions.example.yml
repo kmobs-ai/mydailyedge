@@ -1,25 +1,51 @@
+# This is the workflow that lives at .github/workflows/deploy.yml.
+# If you need to recreate it, paste this content into a new file at that path
+# (via GitHub's web editor or your local clone), commit, and push.
+
 name: Deploy My DailyEdge to cPanel
 
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   deploy:
+    name: Sync to cPanel via FTP
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Upload static files
+      - name: Quick sanity check on JS syntax
+        run: node --check app.js
+
+      - name: Sync to cPanel via FTPS
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
           server: ${{ secrets.FTP_SERVER }}
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           server-dir: ${{ secrets.FTP_SERVER_DIR }}
+          protocol: ftps
+          security: loose
           exclude: |
             **/.git*
             **/.git*/**
+            **/.github/**
             **/docs/**
-            README.md
+            **/tests/**
+            **/database/**
+            **/node_modules/**
+            **/*.test.js
+            **/MyDailyEdge-icon.png
+            **/My DailyEdge.png
+            **/wordmark.png
+            **/README.md
+            **/.cpanel.yml
+            **/.gitignore
+            **/api/config.php
