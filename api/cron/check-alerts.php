@@ -29,6 +29,7 @@ if (!is_file($configPath)) {
     exit(1);
 }
 $config = require $configPath;
+require_once $root . '/email.php';
 
 if (PHP_SAPI !== 'cli') {
     $expected = (string) ($config['cron_secret'] ?? '');
@@ -141,8 +142,19 @@ foreach ($rows as $row) {
 // --- Notification dispatch (stubbed for now; phase 2 wires SMTP, phase 3 wires Web Push) ---
 foreach ($dispatchQueue as $item) {
     if ($item['notify_email']) {
-        // TODO: call send_alert_email($item) — added in the email phase
-        echo "[alerts]   email queued for {$item['user_email']} re {$item['symbol']}\n";
+        $alertForEmail = [
+            'symbol'        => $item['symbol'],
+            'direction'     => $item['direction'],
+            'threshold'     => $item['threshold'],
+            'price'         => $item['price'],
+            'note'          => $item['note'],
+            'triggered_at'  => date('Y-m-d H:i T'),
+        ];
+        [$subject, $html, $text] = build_alert_email($alertForEmail, $config);
+        $sent = send_email($config, $item['user_email'], '', $subject, $html, $text);
+        echo $sent
+            ? "[alerts]   email sent to {$item['user_email']} re {$item['symbol']}\n"
+            : "[alerts]   email FAILED to {$item['user_email']} re {$item['symbol']} (see stderr)\n";
     }
     if ($item['notify_push']) {
         // TODO: call send_alert_push($item) — added in the push phase
