@@ -30,6 +30,7 @@ if (!is_file($configPath)) {
 }
 $config = require $configPath;
 require_once $root . '/email.php';
+require_once $root . '/web-push.php';
 
 if (PHP_SAPI !== 'cli') {
     $expected = (string) ($config['cron_secret'] ?? '');
@@ -139,6 +140,25 @@ foreach ($rows as $row) {
     ];
 }
 
+
+function describe_push_body(array $item): string
+{
+    $symbol = (string) $item['symbol'];
+    $direction = (string) $item['direction'];
+    $threshold = (float) $item['threshold'];
+    $price = (float) $item['price'];
+    $thresholdLabel = ($direction === 'pct_up' || $direction === 'pct_down')
+        ? rtrim(rtrim(number_format($threshold, 2), '0'), '.') . '%'
+        : '$' . number_format($threshold, 2);
+    $directionLabel = [
+        'above'    => 'rose above',
+        'below'    => 'fell below',
+        'pct_up'   => 'gained more than',
+        'pct_down' => 'dropped more than',
+    ][$direction] ?? $direction;
+    return $symbol . ' ' . $directionLabel . ' ' . $thresholdLabel . ' (now $' . number_format($price, 2) . ')';
+}
+
 // --- Notification dispatch (stubbed for now; phase 2 wires SMTP, phase 3 wires Web Push) ---
 foreach ($dispatchQueue as $item) {
     if ($item['notify_email']) {
@@ -157,8 +177,46 @@ foreach ($dispatchQueue as $item) {
             : "[alerts]   email FAILED to {$item['user_email']} re {$item['symbol']} (see stderr)\n";
     }
     if ($item['notify_push']) {
-        // TODO: call send_alert_push($item) — added in the push phase
-        echo "[alerts]   push queued for user {$item['user_id']} re {$item['symbol']}\n";
+        $vapidConfigured = !empty($config['vapid_public_key']) && !empty($config['vapid_private_key']);
+        if (!$vapidConfigured) {
+            echo "[alerts]   push SKIPPED for user {$item['user_id']} (VAPID keys not configured)\n";
+        } else {
+            $stmt = $pdo->prepare('SELECT id, endpoint, p256dh_key, auth_key FROM push_subscriptions WHERE user_id = ?');
+            $stmt->execute([(int) $item['user_id']]);
+            $subs = $stmt->fetchAll();
+            if (!$subs) {
+                echo "[alerts]   push SKIPPED for user {$item['user_id']} (no subscriptions on file)\n";
+            } else {
+                $pushPayload = json_encode([
+                    'title' => "{$item['symbol']} alert",
+                    'body'  => describe_push_body($item),
+                    'tag'   => 'alert-' . $item['alert_id'],
+                    'url'   => rtrim((string) ($config['app_url'] ?? 'https://mydailyedge.io'), '/') . '/?tab=alerts',
+                ]);
+                foreach ($subs as $sub) {
+                    try {
+                        $result = web_push_send($config, [
+                            'endpoint' => $sub['endpoint'],
+                            'p256dh'   => $sub['p256dh_key'],
+                            'auth'     => $sub['auth_key'],
+                        ], $pushPayload);
+                        $code = $result['statusCode'];
+                        if ($code === 410 || $code === 404) {
+                            // Subscription expired — clean up.
+                            $del = $pdo->prepare('DELETE FROM push_subscriptions WHERE id = ?');
+                            $del->execute([(int) $sub['id']]);
+                            echo "[alerts]   push subscription #{$sub['id']} pruned (HTTP $code)\n";
+                        } elseif ($code >= 200 && $code < 300) {
+                            echo "[alerts]   push sent to subscription #{$sub['id']}\n";
+                        } else {
+                            echo "[alerts]   push FAILED to subscription #{$sub['id']} (HTTP $code: " . substr((string) $result['body'], 0, 200) . ")\n";
+                        }
+                    } catch (Throwable $err) {
+                        echo "[alerts]   push ERROR for subscription #{$sub['id']}: " . $err->getMessage() . "\n";
+                    }
+                }
+            }
+        }
     }
 }
 

@@ -24,6 +24,7 @@ const seedState = {
 let state = loadState();
 let auth = { checked: false, configured: false, authenticated: false, registrationOpen: false, marketDataConfigured: false, marketDataProvider: "", newsDataConfigured: false, user: null, error: "", csrfToken: "" };
 let serverStateVersion = 0;
+let pushState = { supported: false, permission: 'default', subscribed: false, vapidPublicKey: '', subscriptions: [] };
 let pendingConflict = null;
 let syncTimer = null;
 let suppressSync = false;
@@ -1062,6 +1063,147 @@ function renderConflictBanner() {
   };
 }
 
+
+// =====================
+// Web push notifications
+// =====================
+function urlBase64ToUint8Array(base64) {
+  const padding = "=".repeat((4 - base64.length % 4) % 4);
+  const b64 = (base64 + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(b64);
+  const arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+  return arr;
+}
+
+async function refreshPushStatus() {
+  pushState.supported = "serviceWorker" in navigator && "PushManager" in window;
+  if (!pushState.supported) return;
+  pushState.permission = Notification.permission;
+  if (auth.configured && auth.authenticated) {
+    try {
+      const r = await apiRequest("push-subscribe.php");
+      pushState.vapidPublicKey = r.vapidPublicKey || "";
+      pushState.subscriptions = Array.isArray(r.subscriptions) ? r.subscriptions : [];
+    } catch (e) { /* keep stale state */ }
+  }
+  // Determine if THIS device is subscribed
+  if (navigator.serviceWorker && navigator.serviceWorker.ready) {
+    try {
+      const reg = await navigator.serviceWorker.getRegistration("/sw.js");
+      if (reg) {
+        const sub = await reg.pushManager.getSubscription();
+        pushState.subscribed = !!sub;
+      } else {
+        pushState.subscribed = false;
+      }
+    } catch (e) {
+      pushState.subscribed = false;
+    }
+  }
+}
+
+async function ensureServiceWorker() {
+  if (!("serviceWorker" in navigator)) throw new Error("Service workers are not supported in this browser.");
+  const existing = await navigator.serviceWorker.getRegistration("/sw.js");
+  if (existing) return existing;
+  return await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+}
+
+async function enablePush() {
+  if (!pushState.supported) {
+    alert("This browser doesn't support push notifications.");
+    return;
+  }
+  if (!pushState.vapidPublicKey) {
+    alert("Push isn't set up on the server yet. Generate VAPID keys in cPanel and add them to api/config.php.");
+    return;
+  }
+  const reg = await ensureServiceWorker();
+  let perm = Notification.permission;
+  if (perm === "default") perm = await Notification.requestPermission();
+  if (perm !== "granted") {
+    alert("You denied notification permission. Re-enable it in your browser settings to receive push alerts.");
+    pushState.permission = perm;
+    render();
+    return;
+  }
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) {
+    sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(pushState.vapidPublicKey),
+    });
+  }
+  const json = sub.toJSON();
+  await apiRequest("push-subscribe.php", {
+    method: "POST",
+    body: JSON.stringify({
+      action: "subscribe",
+      endpoint: json.endpoint,
+      p256dh: json.keys.p256dh,
+      auth: json.keys.auth,
+    }),
+  });
+  await refreshPushStatus();
+  render();
+}
+
+async function disablePush() {
+  const reg = await navigator.serviceWorker.getRegistration("/sw.js");
+  if (!reg) return;
+  const sub = await reg.pushManager.getSubscription();
+  if (sub) {
+    const endpoint = sub.endpoint;
+    await sub.unsubscribe();
+    try {
+      await apiRequest("push-subscribe.php", { method: "POST", body: JSON.stringify({ action: "unsubscribe", endpoint }) });
+    } catch (e) { /* fine — server-side row may already be gone */ }
+  }
+  await refreshPushStatus();
+  render();
+}
+
+function renderPushStatus() {
+  const node = document.getElementById("pushStatus");
+  if (!node) return;
+  if (!auth.authenticated) { node.innerHTML = ""; return; }
+  if (!pushState.supported) {
+    node.innerHTML = '<div class="modal-note">This browser does not support push notifications.</div>';
+    return;
+  }
+  if (pushState.permission === "denied") {
+    node.innerHTML = '<div class="modal-note">Notifications are blocked at the browser level. Allow them in your browser settings to receive push alerts.</div>';
+    return;
+  }
+  if (!pushState.vapidPublicKey) {
+    node.innerHTML = '<div class="modal-note">Server push is not configured yet. Run <code>api/cron/generate-vapid.php</code> on the server and paste the keys into config.php.</div>';
+    return;
+  }
+  const subs = pushState.subscriptions.length;
+  const thisDevice = pushState.subscribed ? "This device is subscribed." : "This device is not subscribed.";
+  node.innerHTML = `
+    <div class="push-status">
+      <div class="push-status-row">
+        <span class="muted mono">Push status</span>
+        <span class="${pushState.subscribed ? "green" : "muted"} mono">${thisDevice}</span>
+      </div>
+      <div class="push-status-row">
+        <span class="muted mono">Total devices</span>
+        <span class="mono">${subs}</span>
+      </div>
+      <div class="toolbar-row" style="margin-top:10px;">
+        ${pushState.subscribed
+          ? '<button class="btn btn-ghost" id="pushDisableBtn" type="button">Disable on this device</button>'
+          : '<button class="btn btn-primary" id="pushEnableBtn" type="button">Enable browser push</button>'}
+      </div>
+    </div>`;
+  const enableBtn = document.getElementById("pushEnableBtn");
+  if (enableBtn) enableBtn.onclick = () => enablePush().catch(e => alert(e.message));
+  const disableBtn = document.getElementById("pushDisableBtn");
+  if (disableBtn) disableBtn.onclick = () => disablePush().catch(e => alert(e.message));
+}
+
 function setupMobileMenu() {
   const btn = document.getElementById("mobileMenuBtn"); const nav = document.getElementById("topbarCenter");
   if (!btn || !nav) return;
@@ -1077,6 +1219,23 @@ async function initApp() {
   if (auth.configured && auth.authenticated) { await loadServerState(); await refreshChartHistory(state.chartRange, true); await loadAlerts(); }
   render();
 }
+
+
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.addEventListener("message", event => {
+    if (event.data && event.data.type === "navigate" && typeof event.data.url === "string") {
+      const u = new URL(event.data.url, window.location.origin);
+      const tab = u.searchParams.get("tab");
+      if (tab) { switchTab(tab); render(); }
+    }
+  });
+}
+
+
+(function honorTabQueryParam() {
+  const tab = new URLSearchParams(window.location.search).get("tab");
+  if (tab) document.addEventListener("DOMContentLoaded", () => switchTab(tab));
+})();
 
 setInterval(renderClock, 1000);
 setInterval(() => { if (auth.configured && auth.authenticated && state.assets.length && !document.hidden) refreshLiveData(true); }, 300000);
