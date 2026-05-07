@@ -192,7 +192,7 @@ function estimateTax({ symbol, quantity, price, date, shortRate, longRate }) {
   return { rows, remaining, proceeds: rows.reduce((s, r) => s + r.proceeds, 0), basis: rows.reduce((s, r) => s + r.basis, 0), gain: rows.reduce((s, r) => s + r.gain, 0), tax: rows.reduce((s, r) => s + r.tax, 0) };
 }
 
-function render() { saveState(); renderClock(); renderTopState(); updateAuthGate(); renderOverview(); renderPortfolio(); renderTasks(); renderIntel(); renderHistory(); renderProfile(); renderAlerts(); hydrateSelects(); renderConflictBanner(); renderAlertBanner(); }
+function render() { saveState(); renderClock(); renderTopState(); updateAuthGate(); renderOverview(); renderPortfolio(); renderTasks(); renderIntel(); renderHistory(); renderProfile(); renderAlerts(); renderPushStatus(); renderUserChip(); hydrateSelects(); renderConflictBanner(); renderAlertBanner(); }
 function renderClock() { document.getElementById("clock").textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }); document.getElementById("overviewTitle").textContent = new Date().toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" }); }
 
 function renderTopState() {
@@ -1006,10 +1006,17 @@ function renderUserChip() {
   const chip = document.getElementById("userChip");
   if (!chip) return;
   const profile = state.profile || {};
-  const name = (profile.displayName || "").trim() || (auth.user?.email || "").split("@")[0] || "Guest";
-  const initials = (name.match(/\b[\w]/g) || ["?"]).slice(0, 2).join("").toUpperCase();
-  chip.querySelector(".user-chip-avatar").textContent = initials;
-  chip.querySelector(".user-chip-name").textContent = name;
+  const fallback = (auth.user?.email || "").split("@")[0];
+  const name = (profile.displayName || "").trim() || fallback || "Guest";
+  const tokens = name.split(/[\s._-]+/).filter(Boolean);
+  const initials = (tokens.length >= 2
+      ? tokens[0][0] + tokens[1][0]
+      : (name[0] || "?")
+  ).toUpperCase();
+  const avatar = chip.querySelector(".user-chip-avatar");
+  const label = chip.querySelector(".user-chip-name");
+  if (avatar) avatar.textContent = initials;
+  if (label) label.textContent = name;
   chip.classList.toggle("user-chip-anon", !auth.authenticated);
 }
 

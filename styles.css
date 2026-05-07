@@ -37,7 +37,7 @@ img, svg { max-width: 100%; }
 .t-tab { font-family: var(--mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); background: none; border: none; padding: 0 16px; height: 52px; cursor: pointer; border-bottom: 1px solid transparent; transition: color .18s, border-color .18s; }
 .t-tab:hover, .cell-link:hover, .wordmark:hover { color: var(--sub); }
 .t-tab.active { color: var(--bright); border-bottom-color: var(--accent); }
-.topbar-right { display: flex; align-items: center; gap: 12px; }
+.topbar-right { display: flex; align-items: center; gap: 12px; position: relative; }
 .t-clock, .t-status { font-family: var(--mono); font-size: 11px; color: var(--muted); letter-spacing: .06em; white-space: nowrap; }
 .t-status { display: flex; align-items: center; gap: 6px; }
 .t-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
@@ -71,9 +71,9 @@ img, svg { max-width: 100%; }
 .dn, .red { color: var(--red) !important; }
 .accent { color: var(--accent) !important; }
 
-.overview-grid { display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 1px; background: var(--line); }
+.overview-grid { display: grid; grid-template-columns: 1.4fr 1fr; grid-auto-rows: minmax(220px, auto); gap: 1px; background: var(--line); }
 .cell, .detail-section { min-height: 330px; background: var(--ink); padding: 22px 24px; overflow: hidden; }
-.span-2 { grid-row: span 2; }
+.span-2 { grid-row: 1 / -1; }
 .cell-head, .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
 .cell-title { color: var(--accent); display: flex; align-items: center; gap: 8px; }
 .cell-title::before { content: ""; width: 3px; height: 13px; background: var(--accent); border-radius: 1px; }
@@ -555,8 +555,8 @@ textarea { resize: vertical; min-height: 78px; }
 
 .user-menu {
   position: absolute;
-  top: 48px;
-  right: 24px;
+  top: calc(100% + 6px);
+  right: 0;
   min-width: 200px;
   background: var(--ink2);
   border: 1px solid var(--line2);
