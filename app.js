@@ -256,7 +256,8 @@ function renderOverview() {
   document.getElementById("overviewPortfolio").innerHTML = port.positions.sort((a, b) => b.value - a.value).map(p => positionMini(p, port.value)).join("");
   document.getElementById("overviewTasks").innerHTML = state.tasks.filter(t => !t.done).sort((a, b) => String(a.due).localeCompare(String(b.due))).slice(0, 5).map(t => compactRow(t.title, `${t.priority || "Medium"} | ${t.due || "No due date"}`, t.priority === "High" ? "accent" : "")).join("") || empty("No open tasks");
   document.getElementById("overviewIntel").innerHTML = state.news.slice(0, 5).map((item, i) => newsMini(item, i)).join("") || empty("No intel yet");
-  document.getElementById("overviewHistory").innerHTML = state.snapshots.slice(0, 5).map(s => compactRow(s.title, `${money(s.portfolio.value)} | ${pct(s.portfolio.dayPct)}`, s.portfolio.dayPnl >= 0 ? "green" : "red")).join("") || empty("Capture your first snapshot");
+  const overviewSnaps = (snapshotsCache && snapshotsCache.length ? snapshotsCache : state.snapshots) || [];
+  document.getElementById("overviewHistory").innerHTML = overviewSnaps.slice(0, 5).map(s => compactRow(s.title, `${money(s.portfolio.value)} | ${pct(s.portfolio.dayPct)}`, s.portfolio.dayPnl >= 0 ? "green" : "red")).join("") || empty("Capture your first snapshot");
   renderMovers(port.positions);
 }
 
@@ -566,6 +567,56 @@ async function loadSnapshots() {
     snapshotsCache = Array.isArray(r.snapshots) ? r.snapshots : [];
   } catch (e) {
     setAuthMessage(e.message);
+    return;
+  }
+  await backfillLocalSnapshots();
+}
+
+async function backfillLocalSnapshots() {
+  // One-shot migration: push any local state.snapshots[] entries to the server
+  // that aren't already there (keyed on snapshot date). Successful pushes are
+  // dropped from state.snapshots so we don't keep retrying. Failures are
+  // logged silently and re-attempted on next load.
+  if (!Array.isArray(state.snapshots) || !state.snapshots.length) return;
+  const serverDates = new Set((snapshotsCache || []).map(s => String(s.date)));
+  const toMigrate = state.snapshots.filter(s => s && s.date && !serverDates.has(String(s.date)));
+  if (!toMigrate.length) {
+    // Local is fully covered already — clear it to avoid future drift
+    if (state.snapshots.length && snapshotsCache.length >= state.snapshots.length) {
+      state.snapshots = [];
+    }
+    return;
+  }
+  let pushed = 0;
+  for (const snap of toMigrate) {
+    try {
+      await apiRequest("snapshots.php", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "capture",
+          date: snap.date,
+          portfolio: snap.portfolio || {},
+          positions: snap.positions || [],
+          tasks: snap.tasks || { open: 0, due: 0 },
+          report: snap.report || "",
+        })
+      });
+      pushed++;
+    } catch (e) {
+      // Skip on failure; keep the local copy so we can retry next load
+      console.warn("[snapshots] backfill failed for", snap.date, e.message);
+    }
+  }
+  if (pushed > 0) {
+    // Re-fetch so snapshotsCache reflects the merged set, then drop migrated entries
+    try {
+      const r = await apiRequest("snapshots.php?limit=180");
+      snapshotsCache = Array.isArray(r.snapshots) ? r.snapshots : snapshotsCache;
+    } catch {}
+    const newServerDates = new Set(snapshotsCache.map(s => String(s.date)));
+    state.snapshots = state.snapshots.filter(s => !newServerDates.has(String(s.date)));
+    saveState();
+    setAuthMessage(`Migrated ${pushed} local snapshot${pushed === 1 ? "" : "s"} to server.`);
   }
 }
 
