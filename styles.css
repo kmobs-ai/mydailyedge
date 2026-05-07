@@ -626,3 +626,31 @@ textarea { resize: vertical; min-height: 78px; }
 @media (max-width: 780px) {
   .btn.icon-only { width: 40px; height: 40px; flex: 0 0 auto !important; }
 }
+
+
+/* Overview Movers cell */
+.movers-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 18px;
+}
+.movers-section { display: flex; flex-direction: column; gap: 0; }
+.movers-label {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.mover-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+.mover-row:last-child { border-bottom: 0; }
+.mover-row .ticker { font-size: 13px; }
+.mover-row .price-block .mono { text-align: right; font-size: 12px; }

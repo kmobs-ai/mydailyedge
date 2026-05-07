@@ -199,6 +199,42 @@ function renderTopState() {
   // The user chip handles auth visuals now; this stays as a no-op stub for callers.
 }
 
+
+function renderMovers(positions) {
+  const ranked = positions
+    .filter(p => p.quantity > 0 && Number.isFinite(p.dayChangePct))
+    .slice()
+    .sort((a, b) => b.dayChangePct - a.dayChangePct);
+  const winners = ranked.filter(p => p.dayChangePct > 0).slice(0, 3);
+  const losers  = ranked.filter(p => p.dayChangePct < 0).slice(-3).reverse();
+  const node = document.getElementById("overviewMovers");
+  if (!node) return;
+  if (!winners.length && !losers.length) {
+    node.innerHTML = empty("No daily movement yet");
+    return;
+  }
+  const row = (pos, tone) => `
+    <div class="mover-row">
+      <div>
+        <div class="ticker">${pos.symbol}</div>
+        <div class="muted small">${pos.name || pos.symbol}</div>
+      </div>
+      <div class="price-block">
+        <div class="mono ${tone}">${pct(pos.dayChangePct)}</div>
+        <div class="mono muted">${money(pos.value * pos.dayChangePct / 100)}</div>
+      </div>
+    </div>`;
+  node.innerHTML = `
+    <div class="movers-section">
+      <div class="movers-label">Winners</div>
+      ${winners.length ? winners.map(p => row(p, "up")).join("") : empty("None today")}
+    </div>
+    <div class="movers-section">
+      <div class="movers-label">Losers</div>
+      ${losers.length ? losers.map(p => row(p, "dn")).join("") : empty("None today")}
+    </div>`;
+}
+
 function renderOverview() {
   const port = portfolio();
   const openTasks = state.tasks.filter(t => !t.done);
@@ -971,35 +1007,62 @@ function exportStateToFile() {
   URL.revokeObjectURL(url);
 }
 
-function setupUserChip() {
-  const chip = document.getElementById("userChip");
+function userMenuClose() {
   const menu = document.getElementById("userMenu");
-  if (!chip || !menu) return;
+  const chip = document.getElementById("userChip");
+  if (menu) menu.hidden = true;
+  if (chip) chip.setAttribute("aria-expanded", "false");
+}
 
-  function close() { menu.hidden = true; chip.setAttribute("aria-expanded", "false"); }
-  function open()  { menu.hidden = false; chip.setAttribute("aria-expanded", "true"); }
+function userMenuOpen() {
+  const menu = document.getElementById("userMenu");
+  const chip = document.getElementById("userChip");
+  if (menu) menu.hidden = false;
+  if (chip) chip.setAttribute("aria-expanded", "true");
+}
 
-  chip.onclick = (e) => {
-    e.stopPropagation();
-    if (!auth.configured) {
-      alert(auth.error || "Backend storage is not configured yet.");
+function setupUserChip() {
+  // Use document-level event delegation so the handlers stay live even if
+  // userChip / userMenu get re-rendered or aren't present on the first pass.
+  document.addEventListener("click", (event) => {
+    const chipEl = event.target.closest("#userChip");
+    if (chipEl) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!auth.configured) {
+        alert(auth.error || "Backend storage is not configured yet.");
+        return;
+      }
+      if (!auth.authenticated) {
+        const gate = document.getElementById("authGate");
+        if (gate) gate.hidden = false;
+        return;
+      }
+      const menu = document.getElementById("userMenu");
+      if (!menu) return;
+      if (menu.hidden) userMenuOpen(); else userMenuClose();
       return;
     }
-    if (!auth.authenticated) {
-      document.getElementById("authGate").hidden = false;
+
+    const menuItem = event.target.closest("#userMenuProfile, #userMenuExport, #userMenuLogout");
+    if (menuItem) {
+      event.preventDefault();
+      event.stopPropagation();
+      userMenuClose();
+      if (menuItem.id === "userMenuProfile") { switchTab("profile"); render(); }
+      else if (menuItem.id === "userMenuExport") { exportStateToFile(); }
+      else if (menuItem.id === "userMenuLogout") { logoutUser(); }
       return;
     }
-    if (menu.hidden) open(); else close();
-  };
 
-  document.addEventListener("click", (e) => {
-    if (!menu.hidden && !menu.contains(e.target) && e.target !== chip) close();
+    // Click outside the menu closes it
+    const menu = document.getElementById("userMenu");
+    if (menu && !menu.hidden && !menu.contains(event.target)) userMenuClose();
   });
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
 
-  document.getElementById("userMenuProfile").onclick = () => { close(); switchTab("profile"); render(); };
-  document.getElementById("userMenuExport").onclick  = () => { close(); exportStateToFile(); };
-  document.getElementById("userMenuLogout").onclick  = () => { close(); logoutUser(); };
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") userMenuClose();
+  });
 }
 
 function renderUserChip() {
@@ -1237,7 +1300,10 @@ function setupMobileMenu() {
 }
 
 async function initApp() {
-  setupMobileMenu(); renderClock(); await refreshAuthStatus();
+  setupMobileMenu();
+  setupUserChip();
+  renderClock();
+  await refreshAuthStatus();
   if (auth.configured && auth.authenticated) { await loadServerState(); await refreshChartHistory(state.chartRange, true); await loadAlerts(); await loadSnapshots(); }
   render();
 }
