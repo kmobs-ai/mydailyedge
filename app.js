@@ -510,8 +510,19 @@ function renderIntel() {
 }
 
 
+let snapshotsCache = [];
 let alertsCache = [];
 let alertsLoading = false;
+
+async function loadSnapshots() {
+  if (!auth.configured || !auth.authenticated) { snapshotsCache = []; return; }
+  try {
+    const r = await apiRequest("snapshots.php?limit=180");
+    snapshotsCache = Array.isArray(r.snapshots) ? r.snapshots : [];
+  } catch (e) {
+    setAuthMessage(e.message);
+  }
+}
 
 async function loadAlerts() {
   if (!auth.configured || !auth.authenticated) { alertsCache = []; return; }
@@ -675,9 +686,10 @@ function renderProfile() {
 }
 
 function renderHistory() {
-  document.getElementById("historyCount").textContent = String(state.snapshots.length);
-  document.getElementById("historyList").innerHTML = state.snapshots.map(snap => `<div class="snapshot-row ${snap.id === state.selectedSnapshotId ? "active" : ""}" data-select-snapshot="${snap.id}"><div><div>${snap.title}</div><div class="muted mono">${snap.date}</div></div><div class="price-block"><div class="mono">${money(snap.portfolio.value)}</div><div class="mono ${snap.portfolio.dayPnl >= 0 ? "up" : "dn"}">${pct(snap.portfolio.dayPct)}</div></div></div>`).join("") || empty("No snapshots yet");
-  const snap = state.snapshots.find(s => s.id === state.selectedSnapshotId) || state.snapshots[0];
+  const snaps = snapshotsCache.length ? snapshotsCache : state.snapshots;
+  document.getElementById("historyCount").textContent = String(snaps.length);
+  document.getElementById("historyList").innerHTML = snaps.map(snap => `<div class="snapshot-row ${snap.id === state.selectedSnapshotId ? "active" : ""}" data-select-snapshot="${snap.id}"><div><div>${snap.title}</div><div class="muted mono">${snap.date}</div></div><div class="price-block"><div class="mono">${money(snap.portfolio.value)}</div><div class="mono ${snap.portfolio.dayPnl >= 0 ? "up" : "dn"}">${pct(snap.portfolio.dayPct)}</div></div></div>`).join("") || empty("Snapshots are taken automatically once a day after market close. Capture Today to record one manually.");
+  const snap = snaps.find(s => s.id === state.selectedSnapshotId) || snaps[0];
   const node = document.getElementById("historyDetail");
   if (!snap) { node.innerHTML = `<div class="report"><h1 id="historyTitle">History</h1><p class="muted">Capture a snapshot to store daily portfolio value, open tasks, active ideas, and a short report.</p></div>`; return; }
   node.innerHTML = `<article class="report"><h1>${snap.title}</h1><div class="report-grid">${metric("Value", money(snap.portfolio.value), "Portfolio")}${metric("Today", money(snap.portfolio.dayPnl), pct(snap.portfolio.dayPct), snap.portfolio.dayPnl >= 0 ? "green" : "red")}${metric("Total P&L", money(snap.portfolio.gain), pct(snap.portfolio.gainPct), snap.portfolio.gain >= 0 ? "green" : "red")}${metric("Open Tasks", snap.tasks.open, `${snap.tasks.due} due`, "")}</div><section class="report-section"><h2>Daily Report</h2><p>${snap.report}</p></section><section class="report-section"><h2>Positions</h2>${snap.positions.map(pos => `<div class="db-row"><span>${pos.symbol}</span><span>${money(pos.value)} | ${pct(pos.dayChangePct)}</span></div>`).join("")}</section></article>`;
@@ -1011,6 +1023,7 @@ document.getElementById("loginForm").addEventListener("submit", async e => {
     if (result.csrfToken) auth.csrfToken = result.csrfToken;
     await refreshAuthStatus();
     await loadServerState();
+    await loadSnapshots();
     updateAuthGate();
     render();
   }
@@ -1218,7 +1231,7 @@ function setupMobileMenu() {
 
 async function initApp() {
   setupMobileMenu(); renderClock(); await refreshAuthStatus();
-  if (auth.configured && auth.authenticated) { await loadServerState(); await refreshChartHistory(state.chartRange, true); await loadAlerts(); }
+  if (auth.configured && auth.authenticated) { await loadServerState(); await refreshChartHistory(state.chartRange, true); await loadAlerts(); await loadSnapshots(); }
   render();
 }
 

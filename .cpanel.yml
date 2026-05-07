@@ -27,9 +27,11 @@ deployment:
     - /bin/cp -f api/email.php ${DEPLOYPATH}api/
     - /bin/cp -f api/web-push.php ${DEPLOYPATH}api/
     - /bin/cp -f api/push-subscribe.php ${DEPLOYPATH}api/
+    - /bin/cp -f api/snapshots.php ${DEPLOYPATH}api/
     - /bin/cp -f api/.htaccess ${DEPLOYPATH}api/
     - /bin/cp -n api/config.sample.php ${DEPLOYPATH}api/config.sample.php
     # Cron worker
     - /bin/mkdir -p ${DEPLOYPATH}api/cron
     - /bin/cp -f api/cron/check-alerts.php ${DEPLOYPATH}api/cron/
     - /bin/cp -f api/cron/generate-vapid.php ${DEPLOYPATH}api/cron/
+    - /bin/cp -f api/cron/daily-snapshot.php ${DEPLOYPATH}api/cron/

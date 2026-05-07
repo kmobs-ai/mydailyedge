@@ -105,6 +105,23 @@ then have any external scheduler (cron-job.org, GitHub Actions schedule, etc.)
 hit `https://mydailyedge.io/api/cron/check-alerts.php?secret=a-long-random-string`
 every 15 minutes.
 
+
+
+## Daily snapshot cron setup
+
+A second cron writes one portfolio snapshot per user per day at 22:00 UTC
+(post-close for US equities, well after the West Coast):
+
+1. Open **Cron Jobs** in cPanel.
+2. Add a new entry:
+   - Schedule: `0 22 * * *`
+   - Command: `/usr/bin/php /home/<your-cpanel-user>/public_html/api/cron/daily-snapshot.php >> /home/<your-cpanel-user>/cron-snapshots.log 2>&1`
+3. The History tab reads from these snapshots automatically.
+
+Manual snapshots from the **Capture Today** button on the History page also
+write to the same `snapshots` table and overwrite the day's auto-snapshot if
+one already exists for that date.
+
 ## MySQL login setup on cPanel
 
 The frontend works in local browser mode until the backend is configured. To enable login and MySQL sync:
