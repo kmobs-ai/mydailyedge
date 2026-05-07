@@ -14,10 +14,10 @@ const CHART_RANGES = [["24h","24H"],["7d","7D"],["1m","1M"],["6m","6M"],["ytd","
 const DEFAULT_PROFILE = { displayName: "", baseCurrency: "USD", timeZone: "America/New_York", investingStyle: "Long-term", notes: "" };
 
 const seedState = {
-  selectedSymbol: null, selectedTaskId: null, selectedIdeaId: null, selectedSnapshotId: null,
-  taskFilter: "open", ideaFilter: "all", newsFilter: "all", alertFilter: "active",
+  selectedSymbol: null, selectedTaskId: null, selectedSnapshotId: null,
+  taskFilter: "all", newsFilter: "all", alertFilter: "active",
   chartMode: "asset", chartRange: "1m", chartStyle: "area",
-  apiKey: "", assets: [], trades: [], tasks: [], ideas: [], news: [], snapshots: [], priceHistory: {},
+  apiKey: "", assets: [], trades: [], tasks: [], news: [], snapshots: [], priceHistory: {},
   profile: { ...DEFAULT_PROFILE }, demoCleanupVersion: DEMO_CLEANUP_VERSION
 };
 
@@ -36,6 +36,12 @@ function migrateState(nextState) {
   nextState.priceHistory ||= {};
   nextState.chartMode ||= "asset"; nextState.chartRange ||= "1m"; nextState.chartStyle ||= "area"; nextState.newsFilter ||= "all";
   nextState.alertFilter ||= "active";
+  delete nextState.ideas;
+  delete nextState.selectedIdeaId;
+  delete nextState.ideaFilter;
+  if (Array.isArray(nextState.tasks)) {
+    nextState.tasks.forEach(t => { delete t.category; });
+  }
   nextState.profile = { ...DEFAULT_PROFILE, ...(nextState.profile || {}) };
   const hasDemoAssets = Array.isArray(nextState.assets) && nextState.assets.some(a => DEMO_SYMBOLS.has(a.symbol));
   const hasDemoTradeIds = Array.isArray(nextState.trades) && nextState.trades.some(t => /^t[1-7]$/.test(String(t.id)));
@@ -47,12 +53,9 @@ function removeDemoData(nextState) {
   nextState.assets = (nextState.assets || []).filter(a => !DEMO_SYMBOLS.has(a.symbol));
   nextState.trades = (nextState.trades || []).filter(t => !DEMO_SYMBOLS.has(t.symbol) && !/^t[1-7]$/.test(String(t.id)));
   nextState.tasks = (nextState.tasks || []).filter(t => !String(t.id || "").startsWith("task-"));
-  nextState.ideas = (nextState.ideas || []).filter(i => !String(i.id || "").startsWith("idea-"));
   nextState.news = (nextState.news || []).filter(n => n.source !== "Sample Intel");
   if (DEMO_SYMBOLS.has(nextState.selectedSymbol)) nextState.selectedSymbol = nextState.assets[0]?.symbol || null;
-  nextState.selectedTaskId = nextState.tasks[0]?.id || null;
-  nextState.selectedIdeaId = nextState.ideas[0]?.id || null;
-  delete nextState.demoDataCleared;
+  nextState.selectedTaskId = nextState.tasks[0]?.id || null;  delete nextState.demoDataCleared;
   nextState.demoCleanupVersion = DEMO_CLEANUP_VERSION;
   return nextState;
 }
@@ -189,32 +192,26 @@ function estimateTax({ symbol, quantity, price, date, shortRate, longRate }) {
   return { rows, remaining, proceeds: rows.reduce((s, r) => s + r.proceeds, 0), basis: rows.reduce((s, r) => s + r.basis, 0), gain: rows.reduce((s, r) => s + r.gain, 0), tax: rows.reduce((s, r) => s + r.tax, 0) };
 }
 
-function render() { saveState(); renderClock(); renderTopState(); updateAuthGate(); renderOverview(); renderPortfolio(); renderTasks(); renderIntel(); renderIdeas(); renderHistory(); renderProfile(); renderAlerts(); hydrateSelects(); renderConflictBanner(); renderAlertBanner(); }
+function render() { saveState(); renderClock(); renderTopState(); updateAuthGate(); renderOverview(); renderPortfolio(); renderTasks(); renderIntel(); renderHistory(); renderProfile(); renderAlerts(); hydrateSelects(); renderConflictBanner(); renderAlertBanner(); }
 function renderClock() { document.getElementById("clock").textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }); document.getElementById("overviewTitle").textContent = new Date().toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" }); }
 
 function renderTopState() {
-  if (!auth.checked) { document.getElementById("liveState").textContent = "Loading"; return; }
-  if (auth.configured && auth.authenticated) { document.getElementById("liveState").textContent = auth.marketDataConfigured ? "Live Sync" : "Synced"; document.getElementById("authBtn").textContent = "LO"; document.getElementById("authBtn").title = auth.user?.email || "Log out"; return; }
-  if (auth.configured) { document.getElementById("liveState").textContent = auth.error ? "Setup" : "Login"; document.getElementById("authBtn").textContent = "AC"; return; }
-  document.getElementById("liveState").textContent = state.apiKey ? "Live API" : "Local"; document.getElementById("authBtn").textContent = "AC";
+  // The user chip handles auth visuals now; this stays as a no-op stub for callers.
 }
 
 function renderOverview() {
   const port = portfolio();
   const openTasks = state.tasks.filter(t => !t.done);
   const todayTasks = openTasks.filter(t => t.due && t.due <= todayISO());
-  const committedIdeas = state.ideas.filter(i => i.stage === "committed").length;
   document.getElementById("dailyBrief").textContent = `${port.dayPnl >= 0 ? "Portfolio is higher" : "Portfolio is lower"} today with ${todayTasks.length} time-sensitive tasks and ${state.news.length} intel items in the queue.`;
   document.getElementById("overviewSummary").innerHTML = [
     metric("Portfolio Value", money(port.value), `${pct(port.dayPct)} today`, port.dayPnl >= 0 ? "up" : "dn"),
     metric("Invested Capital", money(port.cost), `${money(port.gain)} total P&L`, port.gain >= 0 ? "up" : "dn"),
-    metric("Open Tasks", openTasks.length, `${todayTasks.length} due now`, todayTasks.length ? "accent" : ""),
-    metric("Ideas", state.ideas.length, `${committedIdeas} committed`, "accent")
+    metric("Open Tasks", openTasks.length, `${todayTasks.length} due now`, todayTasks.length ? "accent" : "")
   ].join("");
   document.getElementById("overviewPortfolio").innerHTML = port.positions.sort((a, b) => b.value - a.value).map(p => positionMini(p, port.value)).join("");
-  document.getElementById("overviewTasks").innerHTML = state.tasks.filter(t => !t.done).sort((a, b) => String(a.due).localeCompare(String(b.due))).slice(0, 5).map(t => compactRow(t.title, `${t.category} | ${t.due || "No due date"}`, t.priority === "High" ? "accent" : "")).join("") || empty("No open tasks");
+  document.getElementById("overviewTasks").innerHTML = state.tasks.filter(t => !t.done).sort((a, b) => String(a.due).localeCompare(String(b.due))).slice(0, 5).map(t => compactRow(t.title, `${t.priority || "Medium"} | ${t.due || "No due date"}`, t.priority === "High" ? "accent" : "")).join("") || empty("No open tasks");
   document.getElementById("overviewIntel").innerHTML = state.news.slice(0, 5).map((item, i) => newsMini(item, i)).join("") || empty("No intel yet");
-  document.getElementById("overviewIdeas").innerHTML = state.ideas.slice(0, 5).map(i => compactRow(i.title, `${i.stage} | impact ${i.impact}/5`, i.stage)).join("");
   document.getElementById("overviewHistory").innerHTML = state.snapshots.slice(0, 5).map(s => compactRow(s.title, `${money(s.portfolio.value)} | ${pct(s.portfolio.dayPct)}`, s.portfolio.dayPnl >= 0 ? "green" : "red")).join("") || empty("Capture your first snapshot");
 }
 
@@ -466,19 +463,26 @@ function renderChart(port, selected) {
 }
 
 function renderTasks() {
-  const filters = [["open", "Open"], ["today", "Today"], ["finance", "Finance"], ["done", "Done"]];
-  document.getElementById("taskCount").textContent = String(state.tasks.length);
-  document.getElementById("taskFilters").innerHTML = filters.map(([id, label]) => `<div class="nav-item ${state.taskFilter === id ? "active" : ""}" data-task-filter="${id}"><span class="nav-name">${label}</span><span class="nav-count">${filterTasks(id).length}</span></div>`).join("");
-  document.getElementById("taskStats").innerHTML = `<div class="db-row"><span>Completed</span><span class="green">${state.tasks.filter(t => t.done).length}</span></div><div class="db-row"><span>Due now</span><span class="accent">${filterTasks("today").length}</span></div><div class="db-row"><span>Finance</span><span>${filterTasks("finance").length}</span></div>`;
+  const openCount = state.tasks.filter(t => !t.done).length;
+  const highCount = state.tasks.filter(t => !t.done && t.priority === "High").length;
+  const doneCount = state.tasks.filter(t => t.done).length;
+  document.getElementById("taskCount").textContent = String(openCount);
+  document.getElementById("taskFilters").innerHTML = `
+    <div class="nav-item ${state.taskFilter === "high" ? "active" : ""}" data-task-filter="high">
+      <span class="nav-name">High Priority</span><span class="nav-count">${highCount}</span>
+    </div>`;
+  document.getElementById("taskStats").innerHTML = `
+    <div class="db-row"><span>Open</span><span>${openCount}</span></div>
+    <div class="db-row"><span>High priority</span><span class="accent">${highCount}</span></div>
+    <div class="db-row"><span>Completed</span><span class="green">${doneCount}</span></div>`;
   document.querySelectorAll("[data-task-filter]").forEach(b => b.classList.toggle("active", b.dataset.taskFilter === state.taskFilter));
-  document.getElementById("taskList").innerHTML = filterTasks(state.taskFilter).sort((a, b) => Number(a.done) - Number(b.done) || String(a.due).localeCompare(String(b.due))).map(task => `<div class="list-row ${task.id === state.selectedTaskId ? "selected" : ""}" data-select-task="${task.id}"><button class="check ${task.done ? "done" : ""}" data-toggle-task="${task.id}" aria-label="Toggle task"></button><div><div class="${task.done ? "muted" : ""}">${task.title}</div><div class="row-meta"><span class="tag ${task.category.toLowerCase()}">${task.category}</span><span class="mono muted">${task.due || "No due date"}</span><span class="mono ${task.priority === "High" ? "accent" : "muted"}">${task.priority}</span></div></div></div>`).join("") || empty("No tasks in this filter");
+  document.getElementById("taskList").innerHTML = filterTasks(state.taskFilter).sort((a, b) => Number(a.done) - Number(b.done) || String(a.due).localeCompare(String(b.due))).map(task => `<div class="list-row ${task.id === state.selectedTaskId ? "selected" : ""}" data-select-task="${task.id}"><button class="check ${task.done ? "done" : ""}" data-toggle-task="${task.id}" aria-label="Toggle task"></button><div><div class="${task.done ? "muted" : ""}">${task.title}</div><div class="row-meta"><span class="tag priority-${task.priority ? task.priority.toLowerCase() : "medium"}">${task.priority || "Medium"}</span><span class="mono muted">${task.due || "No due date"}</span><span class="mono ${task.priority === "High" ? "accent" : "muted"}">${task.priority}</span></div></div></div>`).join("") || empty("No tasks in this filter");
   renderTaskDetail();
 }
 
 function filterTasks(filter) {
   if (filter === "done") return state.tasks.filter(t => t.done);
-  if (filter === "today") return state.tasks.filter(t => !t.done && t.due && t.due <= todayISO());
-  if (filter === "finance") return state.tasks.filter(t => !t.done && t.category === "Finance");
+  if (filter === "high") return state.tasks.filter(t => !t.done && t.priority === "High");
   return state.tasks.filter(t => !t.done);
 }
 
@@ -486,7 +490,7 @@ function renderTaskDetail() {
   const task = state.tasks.find(t => t.id === state.selectedTaskId) || state.tasks[0];
   const node = document.getElementById("taskDetail");
   if (!task) { node.innerHTML = empty("Select a task"); return; }
-  node.innerHTML = `<div class="detail-card"><h2>${task.title}</h2><div class="row-meta"><span class="tag ${task.category.toLowerCase()}">${task.category}</span><span class="tag">${task.priority}</span>${task.symbol ? `<span class="tag stock">${task.symbol}</span>` : ""}</div><p>${task.notes || "No notes yet."}</p><div class="db-row"><span>Due</span><span>${task.due || "None"}</span></div><div class="db-row"><span>Status</span><span class="${task.done ? "green" : "accent"}">${task.done ? "Done" : "Open"}</span></div><div class="modal-actions"><button class="btn btn-primary" data-toggle-task="${task.id}">${task.done ? "Reopen" : "Complete"}</button><button class="btn btn-danger" data-delete-task="${task.id}">Delete</button></div></div>`;
+  node.innerHTML = `<div class="detail-card"><h2>${task.title}</h2><div class="row-meta"><span class="tag priority-${task.priority ? task.priority.toLowerCase() : "medium"}">${task.priority || "Medium"}</span>${task.symbol ? `<span class="tag stock">${task.symbol}</span>` : ""}</div><p>${task.notes || "No notes yet."}</p><div class="db-row"><span>Due</span><span>${task.due || "None"}</span></div><div class="db-row"><span>Status</span><span class="${task.done ? "green" : "accent"}">${task.done ? "Done" : "Open"}</span></div><div class="modal-actions"><button class="btn btn-primary" data-toggle-task="${task.id}">${task.done ? "Reopen" : "Complete"}</button><button class="btn btn-danger" data-delete-task="${task.id}">Delete</button></div></div>`;
 }
 
 function filterNews() {
@@ -508,7 +512,8 @@ function sourceLogoChip(item) { const key = (item.sourceKey || "").toLowerCase()
 function renderIntel() {
   const positions = portfolio().positions;
   document.getElementById("watchCount").textContent = String(positions.length);
-  document.getElementById("apiKey").value = auth.configured ? (auth.marketDataConfigured ? `${auth.marketDataProvider || "Server quotes"} · multi-source RSS` : "Market data unavailable") : (state.apiKey ? "Browser fallback key saved" : "Backend not configured");
+  const apiKeyInput = document.getElementById("apiKey");
+  if (apiKeyInput) apiKeyInput.value = auth.configured ? (auth.marketDataConfigured ? `${auth.marketDataProvider || "Server quotes"} · multi-source RSS` : "Market data unavailable") : (state.apiKey ? "Browser fallback key saved" : "Backend not configured");
   document.getElementById("watchList").innerHTML = positions.map(pos => `<div class="nav-item" data-select-asset="${pos.symbol}"><span class="nav-name">${pos.symbol}</span><span class="nav-count">${pct(pos.dayChangePct)}</span></div>`).join("") || empty("Add positions to build your watchlist.");
   document.querySelectorAll("[data-news-filter]").forEach(b => b.classList.toggle("active", b.dataset.newsFilter === (state.newsFilter || "all")));
   const filtered = filterNews();
@@ -684,32 +689,13 @@ function renderProfile() {
   account.innerHTML = `<div class="profile-stat"><span>Account</span><strong>${auth.authenticated ? "Signed in" : "Local"}</strong></div><div class="profile-stat"><span>Email</span><strong>${auth.user?.email || "Not signed in"}</strong></div><div class="profile-stat"><span>Created</span><strong>${auth.user?.created_at ? String(auth.user.created_at).slice(0, 10) : "Not available"}</strong></div><div class="profile-stat"><span>Portfolio value</span><strong>${money(port.value)}</strong></div><div class="profile-stat"><span>Holdings</span><strong>${port.positions.length}</strong></div><div class="profile-stat"><span>Saved profile</span><strong>${profile.displayName ? profile.displayName : "Add your name"}</strong></div>`;
 }
 
-function renderIdeas() {
-  const filters = [["all","All"],["raw","Raw"],["research","Research"],["committed","Committed"]];
-  document.getElementById("ideaCount").textContent = String(state.ideas.length);
-  document.getElementById("ideaFilters").innerHTML = filters.map(([id, label]) => `<div class="nav-item ${state.ideaFilter === id ? "active" : ""}" data-idea-filter="${id}"><span class="nav-name">${label}</span><span class="nav-count">${filterIdeas(id).length}</span></div>`).join("");
-  document.getElementById("ideaStats").innerHTML = `<div class="db-row"><span>Committed</span><span class="green">${filterIdeas("committed").length}</span></div><div class="db-row"><span>Research</span><span class="accent">${filterIdeas("research").length}</span></div><div class="db-row"><span>Raw</span><span>${filterIdeas("raw").length}</span></div>`;
-  document.querySelectorAll("[data-idea-filter]").forEach(b => b.classList.toggle("active", b.dataset.ideaFilter === state.ideaFilter));
-  document.getElementById("ideaList").innerHTML = filterIdeas(state.ideaFilter).map(idea => `<div class="list-row ${idea.id === state.selectedIdeaId ? "selected" : ""}" data-select-idea="${idea.id}"><span class="dot ${idea.stage === "committed" ? "green" : "accent"}"></span><div><div>${idea.title}</div><div class="row-meta"><span class="tag ${idea.stage}">${idea.stage}</span><span class="tag ${idea.category.toLowerCase()}">${idea.category}</span><span class="mono muted">Impact ${idea.impact} | Effort ${idea.effort}</span></div></div></div>`).join("") || empty("No ideas here yet");
-  renderIdeaDetail();
-}
-
-function filterIdeas(filter) { if (filter === "all") return state.ideas; return state.ideas.filter(i => i.stage === filter); }
-
-function renderIdeaDetail() {
-  const idea = state.ideas.find(i => i.id === state.selectedIdeaId) || state.ideas[0];
-  const node = document.getElementById("ideaDetail");
-  if (!idea) { node.innerHTML = empty("Select an idea"); return; }
-  node.innerHTML = `<div class="detail-card"><h2>${idea.title}</h2><div class="row-meta"><span class="tag ${idea.stage}">${idea.stage}</span><span class="tag ${idea.category.toLowerCase()}">${idea.category}</span></div><p>${idea.notes || "No notes yet."}</p><div class="db-row"><span>Impact</span><span>${idea.impact}/5</span></div><div class="db-row"><span>Effort</span><span>${idea.effort}/5</span></div><div class="db-row"><span>Created</span><span>${idea.created}</span></div><div class="modal-actions"><button class="btn btn-ghost" data-promote-idea="${idea.id}">Advance</button><button class="btn btn-danger" data-delete-idea="${idea.id}">Delete</button></div></div>`;
-}
-
 function renderHistory() {
   document.getElementById("historyCount").textContent = String(state.snapshots.length);
   document.getElementById("historyList").innerHTML = state.snapshots.map(snap => `<div class="snapshot-row ${snap.id === state.selectedSnapshotId ? "active" : ""}" data-select-snapshot="${snap.id}"><div><div>${snap.title}</div><div class="muted mono">${snap.date}</div></div><div class="price-block"><div class="mono">${money(snap.portfolio.value)}</div><div class="mono ${snap.portfolio.dayPnl >= 0 ? "up" : "dn"}">${pct(snap.portfolio.dayPct)}</div></div></div>`).join("") || empty("No snapshots yet");
   const snap = state.snapshots.find(s => s.id === state.selectedSnapshotId) || state.snapshots[0];
   const node = document.getElementById("historyDetail");
   if (!snap) { node.innerHTML = `<div class="report"><h1 id="historyTitle">History</h1><p class="muted">Capture a snapshot to store daily portfolio value, open tasks, active ideas, and a short report.</p></div>`; return; }
-  node.innerHTML = `<article class="report"><h1>${snap.title}</h1><div class="report-grid">${metric("Value", money(snap.portfolio.value), "Portfolio")}${metric("Today", money(snap.portfolio.dayPnl), pct(snap.portfolio.dayPct), snap.portfolio.dayPnl >= 0 ? "green" : "red")}${metric("Total P&L", money(snap.portfolio.gain), pct(snap.portfolio.gainPct), snap.portfolio.gain >= 0 ? "green" : "red")}${metric("Open Tasks", snap.tasks.open, `${snap.tasks.due} due`, "")}</div><section class="report-section"><h2>Daily Report</h2><p>${snap.report}</p></section><section class="report-section"><h2>Positions</h2>${snap.positions.map(pos => `<div class="db-row"><span>${pos.symbol}</span><span>${money(pos.value)} | ${pct(pos.dayChangePct)}</span></div>`).join("")}</section><section class="report-section"><h2>Ideas</h2>${snap.ideas.map(i => `<div class="db-row"><span>${i.title}</span><span>${i.stage}</span></div>`).join("")}</section></article>`;
+  node.innerHTML = `<article class="report"><h1>${snap.title}</h1><div class="report-grid">${metric("Value", money(snap.portfolio.value), "Portfolio")}${metric("Today", money(snap.portfolio.dayPnl), pct(snap.portfolio.dayPct), snap.portfolio.dayPnl >= 0 ? "green" : "red")}${metric("Total P&L", money(snap.portfolio.gain), pct(snap.portfolio.gainPct), snap.portfolio.gain >= 0 ? "green" : "red")}${metric("Open Tasks", snap.tasks.open, `${snap.tasks.due} due`, "")}</div><section class="report-section"><h2>Daily Report</h2><p>${snap.report}</p></section><section class="report-section"><h2>Positions</h2>${snap.positions.map(pos => `<div class="db-row"><span>${pos.symbol}</span><span>${money(pos.value)} | ${pct(pos.dayChangePct)}</span></div>`).join("")}</section></article>`;
 }
 
 function captureSnapshot() {
@@ -717,7 +703,7 @@ function captureSnapshot() {
   const positions = port.positions.map(p => ({ symbol: p.symbol, value: p.value, dayChangePct: p.dayChangePct, gain: p.gain }));
   const openTasks = state.tasks.filter(t => !t.done);
   const dueTasks = openTasks.filter(t => t.due && t.due <= todayISO());
-  const report = `Portfolio closed at ${money(port.value)} with ${money(port.dayPnl)} of daily movement (${pct(port.dayPct)}). Total unrealized P&L is ${money(port.gain)}. The biggest positions are ${positions.sort((a, b) => b.value - a.value).slice(0, 3).map(p => p.symbol).join(", ")}. There are ${openTasks.length} open tasks, ${dueTasks.length} due now, and ${state.ideas.filter(i => i.stage === "committed").length} committed ideas.`;
+  const report = `Portfolio closed at ${money(port.value)} with ${money(port.dayPnl)} of daily movement (${pct(port.dayPct)}). Total unrealized P&L is ${money(port.gain)}. The biggest positions are ${positions.sort((a, b) => b.value - a.value).slice(0, 3).map(p => p.symbol).join(", ")}. There are ${openTasks.length} open tasks, ${dueTasks.length} due now,.`;
   const snap = { id: uid(), date: todayISO(), title: new Date().toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" }), portfolio: { value: port.value, cost: port.cost, dayPnl: port.dayPnl, dayPct: port.dayPct, gain: port.gain, gainPct: port.gainPct }, positions, tasks: { open: openTasks.length, due: dueTasks.length }, ideas: state.ideas.map(({ title, stage }) => ({ title, stage })), report };
   state.snapshots.unshift(snap); state.selectedSnapshotId = snap.id; switchTab("history"); render();
 }
@@ -820,14 +806,11 @@ function recordTrade(form) {
   state.selectedSymbol = symbol;
 }
 
-function addTask(form) { const d = Object.fromEntries(new FormData(form).entries()); const t = { id: uid(), title: d.title.trim(), category: d.category, priority: d.priority, due: d.due, symbol: d.symbol, notes: d.notes.trim(), done: false }; state.tasks.unshift(t); state.selectedTaskId = t.id; }
-function addIdea(form) { const d = Object.fromEntries(new FormData(form).entries()); const i = { id: uid(), title: d.title.trim(), stage: d.stage, category: d.category, impact: Number(d.impact || 3), effort: Number(d.effort || 3), created: todayISO(), notes: d.notes.trim() }; state.ideas.unshift(i); state.selectedIdeaId = i.id; }
-
+function addTask(form) { const d = Object.fromEntries(new FormData(form).entries()); const t = { id: uid(), title: d.title.trim(), priority: d.priority, due: d.due, symbol: d.symbol, notes: d.notes.trim(), done: false }; state.tasks.unshift(t); state.selectedTaskId = t.id; }
 async function refreshLiveData(silent = false) {
   if (auth.configured && !auth.authenticated) { if (!silent) alert("Sign in before refreshing server-side market data."); return; }
   if (auth.configured && auth.authenticated) {
-    document.getElementById("liveState").textContent = "Refreshing";
-    try {
+        try {
       const symbols = state.assets.filter(i => i.marketDataLinked !== false && i.type !== "cash" && i.type !== "other").map(a => a.marketDataSymbol || a.symbol).join(",");
       if (!symbols) { render(); return; }
       const result = await apiRequest(`market.php?type=quotes&symbols=${encodeURIComponent(symbols)}`, { method: "GET", headers: {} });
@@ -847,8 +830,7 @@ async function refreshLiveData(silent = false) {
     return;
   }
   if (!state.apiKey) { if (!silent) alert("Configure the server-side Alpha Vantage key in api/config.php, or save a browser fallback key in local mode."); return; }
-  document.getElementById("liveState").textContent = "Refreshing";
-  for (const asset of state.assets.filter(i => i.type !== "crypto" && i.type !== "cash")) {
+    for (const asset of state.assets.filter(i => i.type !== "crypto" && i.type !== "cash")) {
     try {
       const url = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${encodeURIComponent(asset.symbol)}&apikey=${encodeURIComponent(state.apiKey)}`;
       const result = await fetch(url).then(r => r.json());
@@ -926,20 +908,12 @@ document.addEventListener("click", event => {
   if (editAsset) openAssetEditor(editAsset);
   const taskFilter = event.target.closest("[data-task-filter]")?.dataset.taskFilter;
   if (taskFilter) { state.taskFilter = taskFilter; render(); }
-  const ideaFilter = event.target.closest("[data-idea-filter]")?.dataset.ideaFilter;
-  if (ideaFilter) { state.ideaFilter = ideaFilter; render(); }
   const taskId = event.target.closest("[data-select-task]")?.dataset.selectTask;
   if (taskId) { state.selectedTaskId = taskId; render(); }
   const toggleTaskId = event.target.closest("[data-toggle-task]")?.dataset.toggleTask;
   if (toggleTaskId) { const t = state.tasks.find(i => i.id === toggleTaskId); if (t) t.done = !t.done; render(); }
   const deleteTaskId = event.target.closest("[data-delete-task]")?.dataset.deleteTask;
   if (deleteTaskId) { state.tasks = state.tasks.filter(t => t.id !== deleteTaskId); state.selectedTaskId = state.tasks[0]?.id || null; render(); }
-  const ideaId = event.target.closest("[data-select-idea]")?.dataset.selectIdea;
-  if (ideaId) { state.selectedIdeaId = ideaId; render(); }
-  const promoteIdeaId = event.target.closest("[data-promote-idea]")?.dataset.promoteIdea;
-  if (promoteIdeaId) { const idea = state.ideas.find(i => i.id === promoteIdeaId); if (idea) idea.stage = idea.stage === "raw" ? "research" : idea.stage === "research" ? "committed" : "committed"; render(); }
-  const deleteIdeaId = event.target.closest("[data-delete-idea]")?.dataset.deleteIdea;
-  if (deleteIdeaId) { state.ideas = state.ideas.filter(i => i.id !== deleteIdeaId); state.selectedIdeaId = state.ideas[0]?.id || null; render(); }
   const deleteTradeId = event.target.closest("[data-delete-trade]")?.dataset.deleteTrade;
   if (deleteTradeId && confirm("Delete this portfolio activity entry? This changes the holding quantity and tax lots.")) { state.trades = state.trades.filter(t => t.id !== deleteTradeId); render(); }
   const snapId = event.target.closest("[data-select-snapshot]")?.dataset.selectSnapshot;
@@ -952,7 +926,6 @@ document.getElementById("assetForm").addEventListener("submit", e => { e.prevent
 document.getElementById("assetLookupBtn").addEventListener("click", lookupAssetMarketData);
 document.getElementById("tradeForm").addEventListener("submit", e => { e.preventDefault(); recordTrade(e.currentTarget); e.currentTarget.reset(); closeModals(); render(); });
 document.getElementById("taskForm").addEventListener("submit", e => { e.preventDefault(); addTask(e.currentTarget); e.currentTarget.reset(); closeModals(); render(); });
-document.getElementById("ideaForm").addEventListener("submit", e => { e.preventDefault(); addIdea(e.currentTarget); e.currentTarget.reset(); closeModals(); render(); });
 document.getElementById("alertForm").addEventListener("submit", e => { e.preventDefault(); submitAlertForm(e.currentTarget).then(() => e.currentTarget.reset()); });
 
 // Show/hide baseline field based on direction
@@ -971,7 +944,7 @@ document.getElementById("taxForm").addEventListener("submit", e => {
   document.getElementById("taxEstimateOutput").innerHTML = `${metric("Estimated Gain", money(result.gain), `${money(result.proceeds)} proceeds`, result.gain >= 0 ? "green" : "red")}<div class="db-row"><span>Cost basis</span><span>${money(result.basis)}</span></div><div class="db-row"><span>Federal estimate</span><span class="accent">${money(result.tax)}</span></div>${result.remaining > 0 ? `<div class="modal-note">Not enough open lots for ${result.remaining.toFixed(4)} units.</div>` : ""}${result.rows.map(r => `<div class="db-row"><span>${r.qty.toFixed(4)} from ${r.date} (${r.term})</span><span>${money(r.gain)}</span></div>`).join("")}`;
 });
 
-document.getElementById("saveApiKeyBtn").addEventListener("click", () => {
+document.getElementById("saveApiKeyBtn")?.addEventListener("click", () => {
   if (auth.configured) { alert(auth.newsDataConfigured ? "Server-side quotes, Alpha Vantage news, and Yahoo + RSS fallbacks are configured." : "Server-side Yahoo quotes and multi-source RSS are active. Add alpha_vantage_api_key in public_html/api/config.php later for sentiment-enhanced news."); return; }
   const key = prompt("Optional local fallback Alpha Vantage key. Prefer server-side config for production.", state.apiKey || "");
   if (key !== null) { state.apiKey = key.trim(); render(); }
@@ -982,22 +955,67 @@ document.getElementById("refreshNewsBtn").addEventListener("click", async () => 
 document.getElementById("captureSnapshotBtn").addEventListener("click", captureSnapshot);
 document.getElementById("historySnapshotBtn").addEventListener("click", captureSnapshot);
 
-document.getElementById("exportBtn").addEventListener("click", () => {
+
+async function logoutUser() {
+  if (!auth.configured || !auth.authenticated) return;
+  try { await apiRequest("auth.php", { method: "POST", body: JSON.stringify({ action: "logout" }) }); } catch (e) { /* fine, server may already have killed session */ }
+  auth.authenticated = false;
+  auth.user = null;
+  auth.csrfToken = "";
+  updateAuthGate();
+  render();
+}
+
+function exportStateToFile() {
   const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
-  const url = URL.createObjectURL(blob); const link = document.createElement("a");
-  link.href = url; link.download = `my-dailyedge-${todayISO()}.json`; link.click(); URL.revokeObjectURL(url);
-});
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url; link.download = `my-dailyedge-${todayISO()}.json`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
 
-document.getElementById("importFile").addEventListener("change", async e => {
-  const file = e.target.files[0]; if (!file) return;
-  state = { ...structuredClone(seedState), ...JSON.parse(await file.text()) }; render();
-});
+function setupUserChip() {
+  const chip = document.getElementById("userChip");
+  const menu = document.getElementById("userMenu");
+  if (!chip || !menu) return;
 
-document.getElementById("authBtn").addEventListener("click", async () => {
-  if (auth.configured && auth.authenticated) { await apiRequest("auth.php", { method: "POST", body: JSON.stringify({ action: "logout" }) }); auth.authenticated = false; auth.user = null; updateAuthGate(); render(); return; }
-  if (!auth.configured) { alert(auth.error || "Backend storage is not configured yet. Create api/config.php and install the MySQL schema to enable login."); return; }
-  document.getElementById("authGate").hidden = false;
-});
+  function close() { menu.hidden = true; chip.setAttribute("aria-expanded", "false"); }
+  function open()  { menu.hidden = false; chip.setAttribute("aria-expanded", "true"); }
+
+  chip.onclick = (e) => {
+    e.stopPropagation();
+    if (!auth.configured) {
+      alert(auth.error || "Backend storage is not configured yet.");
+      return;
+    }
+    if (!auth.authenticated) {
+      document.getElementById("authGate").hidden = false;
+      return;
+    }
+    if (menu.hidden) open(); else close();
+  };
+
+  document.addEventListener("click", (e) => {
+    if (!menu.hidden && !menu.contains(e.target) && e.target !== chip) close();
+  });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") close(); });
+
+  document.getElementById("userMenuProfile").onclick = () => { close(); switchTab("profile"); render(); };
+  document.getElementById("userMenuExport").onclick  = () => { close(); exportStateToFile(); };
+  document.getElementById("userMenuLogout").onclick  = () => { close(); logoutUser(); };
+}
+
+function renderUserChip() {
+  const chip = document.getElementById("userChip");
+  if (!chip) return;
+  const profile = state.profile || {};
+  const name = (profile.displayName || "").trim() || (auth.user?.email || "").split("@")[0] || "Guest";
+  const initials = (name.match(/\b[\w]/g) || ["?"]).slice(0, 2).join("").toUpperCase();
+  chip.querySelector(".user-chip-avatar").textContent = initials;
+  chip.querySelector(".user-chip-name").textContent = name;
+  chip.classList.toggle("user-chip-anon", !auth.authenticated);
+}
 
 document.getElementById("showRegisterBtn").addEventListener("click", () => { document.getElementById("loginForm").hidden = true; document.getElementById("registerForm").hidden = false; setAuthMessage("Create the first account, then disable registration in api/config.php."); });
 document.getElementById("showLoginBtn").addEventListener("click", () => { document.getElementById("registerForm").hidden = true; document.getElementById("loginForm").hidden = false; setAuthMessage(""); });
