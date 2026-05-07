@@ -202,7 +202,7 @@ function renderTopState() {
 
 function renderMovers(positions) {
   const ranked = positions
-    .filter(p => p.quantity > 0 && Number.isFinite(p.dayChangePct))
+    .filter(p => p.quantity > 0 && Number.isFinite(p.dayChangePct) && p.dayChangePct !== 0)
     .slice()
     .sort((a, b) => b.dayChangePct - a.dayChangePct);
   const winners = ranked.filter(p => p.dayChangePct > 0).slice(0, 3);
@@ -213,26 +213,22 @@ function renderMovers(positions) {
     node.innerHTML = empty("No daily movement yet");
     return;
   }
-  const row = (pos, tone) => `
-    <div class="mover-row">
-      <div>
-        <div class="ticker">${pos.symbol}</div>
-        <div class="muted small">${pos.name || pos.symbol}</div>
-      </div>
-      <div class="price-block">
-        <div class="mono ${tone}">${pct(pos.dayChangePct)}</div>
-        <div class="mono muted">${money(pos.value * pos.dayChangePct / 100)}</div>
-      </div>
-    </div>`;
+  const all = [...winners, ...losers];
+  const maxAbs = Math.max(...all.map(p => Math.abs(p.dayChangePct))) || 1;
+  const bar = pos => {
+    const tone = pos.dayChangePct >= 0 ? "up" : "dn";
+    const fill = Math.max(4, Math.min(100, (Math.abs(pos.dayChangePct) / maxAbs) * 100));
+    return `
+      <div class="mover-bar-row" data-select-asset="${pos.symbol}">
+        <span class="mover-ticker">${pos.symbol}</span>
+        <span class="mover-track"><span class="mover-fill ${tone}" style="width:${fill.toFixed(1)}%"></span></span>
+        <span class="mover-pct mono ${tone}">${pct(pos.dayChangePct)}</span>
+      </div>`;
+  };
   node.innerHTML = `
-    <div class="movers-section">
-      <div class="movers-label">Winners</div>
-      ${winners.length ? winners.map(p => row(p, "up")).join("") : empty("None today")}
-    </div>
-    <div class="movers-section">
-      <div class="movers-label">Losers</div>
-      ${losers.length ? losers.map(p => row(p, "dn")).join("") : empty("None today")}
-    </div>`;
+    ${winners.length ? winners.map(bar).join("") : ""}
+    ${winners.length && losers.length ? '<div class="mover-divider"></div>' : ""}
+    ${losers.length ? losers.map(bar).join("") : ""}`;
 }
 
 function renderOverview() {
