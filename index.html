@@ -66,9 +66,9 @@
             <p class="hero-greeting" id="dailyBrief">Portfolio, tasks, news, and history in one daily operating view.</p>
           </div>
           <div class="hero-actions">
-            <button class="btn btn-primary" data-open-modal="assetModal">Add Position</button>
-            <button class="btn btn-ghost" id="captureSnapshotBtn">Snapshot</button>
-            <button class="btn btn-ghost" id="refreshDataBtn">Refresh</button>
+            <button class="btn btn-ghost icon-only" id="refreshDataBtn" title="Refresh prices and news" aria-label="Refresh data">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+            </button>
           </div>
         </div>
 
@@ -102,10 +102,6 @@
               <span class="sec-badge" id="positionCount">0 assets</span>
             </div>
             <div class="summary-card" id="portfolioSummary"></div>
-            <div class="toolbar-row">
-              <button class="btn btn-primary" data-open-modal="assetModal">Position</button>
-              <button class="btn btn-ghost" data-open-modal="tradeModal">Trade</button>
-            </div>
             <div class="position-list" id="positionList"></div>
           </aside>
 
@@ -156,11 +152,7 @@
                   <div class="cell-head"><h2 class="cell-title">Activity</h2></div>
                   <div id="activityList"></div>
                 </section>
-                <section class="detail-section">
-                  <div class="cell-head"><h2 class="cell-title">Connections</h2></div>
-                  <div id="connectionPanel"></div>
-                </section>
-              </div>
+                </div>
             </div>
           </section>
         </div>

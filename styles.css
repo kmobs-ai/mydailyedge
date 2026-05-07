@@ -609,3 +609,20 @@ textarea { resize: vertical; min-height: 78px; }
 @media (max-width: 1120px) {
   .app-footer { padding: 14px 12px max(14px, env(safe-area-inset-bottom)); }
 }
+
+
+/* Icon-only buttons (refresh, etc.) */
+.btn.icon-only {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  min-height: 0;
+  border-radius: 4px;
+}
+.btn.icon-only svg { display: block; }
+.btn-ghost.icon-only:hover { color: var(--accent); border-color: var(--dim); }
+@media (max-width: 780px) {
+  .btn.icon-only { width: 40px; height: 40px; flex: 0 0 auto !important; }
+}

@@ -226,8 +226,6 @@ function renderPortfolio() {
   const port = portfolio();
   const selectedAsset = getAsset();
   const selected = selectedAsset ? positionFor(selectedAsset) : null;
-  const linkedCount = port.positions.filter(p => p.marketDataLinked !== false && p.type !== "cash" && p.type !== "other").length;
-  const zeroLotCount = port.positions.filter(p => p.quantity <= 0).length;
   document.getElementById("positionCount").textContent = `${port.positions.length} assets`;
   document.getElementById("portfolioSummary").innerHTML = `
     <div class="summary-value">${money(port.value)}</div>
@@ -236,17 +234,7 @@ function renderPortfolio() {
       <div class="summary-stat"><strong class="${port.dayPct >= 0 ? "up" : "dn"}">${pct(port.dayPct)}</strong><span>Day return</span></div>
       <div class="summary-stat"><strong class="${port.gain >= 0 ? "up" : "dn"}">${money(port.gain)}</strong><span>All-time P&L</span></div>
     </div>
-    <div class="alloc-stack">${allocationPieces(port)}</div>
-    <div class="portfolio-health">
-      <div class="health-card"><strong>${linkedCount}/${port.positions.length}</strong><span>Live linked</span></div>
-      <div class="health-card"><strong>${zeroLotCount}</strong><span>Need lots</span></div>
-      <div class="health-card"><strong>${auth.marketDataProvider || (auth.marketDataConfigured ? "Yahoo" : "Manual")}</strong><span>Quote source</span></div>
-      <div class="health-card"><strong>${port.positions.length ? "5 min" : "Paused"}</strong><span>Auto refresh</span></div>
-    </div>
-    <div class="toolbar-row" style="margin-top:14px">
-      <button class="btn btn-primary" id="portfolioRefreshBtn" type="button">Refresh Live</button>
-      <button class="btn btn-ghost" id="clearDemoBtn" type="button">Clear Demo</button>
-    </div>`;
+    <div class="alloc-stack">${allocationPieces(port)}</div>`;
   document.getElementById("positionList").innerHTML = port.positions.length ? port.positions.sort((a, b) => b.value - a.value).map(pos => `
     <div class="position-item ${pos.symbol === selected.symbol ? "active" : ""}" data-select-asset="${pos.symbol}">
       <div class="row-top">
@@ -265,12 +253,9 @@ function renderPortfolio() {
     </div>`).join("") : `<div class="summary-card"><div class="empty">No positions yet</div><button class="btn btn-primary full" data-open-modal="assetModal">Add Position</button></div>`;
   if (selected) renderAssetDetail(selected); else renderEmptyPortfolioDetail();
   renderChart(port, selected);
-  document.getElementById("connectionPanel").innerHTML = renderConnectionPanel(port);
 }
 
 function allocationPieces(port) { if (!port.value) return `<div class="alloc-piece" style="width:100%;background:var(--line2)"></div>`; return port.positions.filter(p => p.value > 0).sort((a, b) => b.value - a.value).map(p => `<div class="alloc-piece" title="${p.symbol}" style="width:${Math.max(1, p.value / port.value * 100)}%;background:${p.color}"></div>`).join(""); }
-function renderConnectionPanel(port) { const linked = port.positions.filter(p => p.marketDataLinked !== false && p.type !== "cash" && p.type !== "other").length; return `<div class="connection-row"><span>Market quotes</span><span>${auth.marketDataProvider || (auth.marketDataConfigured ? "Yahoo Finance" : "Manual only")}</span></div><div class="connection-row"><span>Linked holdings</span><span>${linked}/${port.positions.length}</span></div><div class="connection-row"><span>Position news</span><span>${auth.newsDataConfigured ? "Alpha + Yahoo" : "Yahoo fallback"}</span></div><div class="connection-row"><span>RSS feeds</span><span>The Block · CoinDesk · Cointelegraph · Yahoo</span></div><div class="connection-row"><span>Brokerage import</span><span>Plaid or SnapTrade recommended</span></div>`; }
-
 function renderEmptyPortfolioDetail() {
   document.getElementById("assetDetailHead").innerHTML = `<div><p class="hero-eyebrow">Portfolio setup</p><div class="asset-title">Add your first position</div><p class="hero-greeting">Use Lookup to connect a ticker to live market data, then enter your shares, average cost, and purchase date.</p></div><button class="btn btn-primary" data-open-modal="assetModal">Add Position</button>`;
   document.getElementById("lotsList").innerHTML = empty("No lots yet"); document.getElementById("taxPreview").innerHTML = empty("No tax estimate yet"); document.getElementById("activityList").innerHTML = empty("No activity yet");
@@ -919,7 +904,6 @@ document.addEventListener("click", event => {
   const snapId = event.target.closest("[data-select-snapshot]")?.dataset.selectSnapshot;
   if (snapId) { state.selectedSnapshotId = snapId; render(); }
   if (event.target.closest("#portfolioRefreshBtn")) refreshLiveData();
-  if (event.target.closest("#clearDemoBtn")) { state = removeDemoData(state); render(); }
 });
 
 document.getElementById("assetForm").addEventListener("submit", e => { e.preventDefault(); upsertAsset(e.currentTarget); e.currentTarget.reset(); setAssetLookupStatus("Lookup connects the asset to server-side market data for future refreshes."); closeModals(); render(); });
@@ -952,7 +936,7 @@ document.getElementById("saveApiKeyBtn")?.addEventListener("click", () => {
 
 document.getElementById("refreshDataBtn").addEventListener("click", refreshLiveData);
 document.getElementById("refreshNewsBtn").addEventListener("click", async () => { await refreshNews(); render(); });
-document.getElementById("captureSnapshotBtn").addEventListener("click", captureSnapshot);
+document.getElementById("captureSnapshotBtn")?.addEventListener("click", captureSnapshot);
 document.getElementById("historySnapshotBtn").addEventListener("click", captureSnapshot);
 
 
