@@ -201,34 +201,46 @@ function renderTopState() {
 
 
 function renderMovers(positions) {
+  // Use Number.isFinite + a permissive filter — even tiny moves are interesting,
+  // and exact-zero is rare unless the asset has no previousClose set.
   const ranked = positions
-    .filter(p => p.quantity > 0 && Number.isFinite(p.dayChangePct) && p.dayChangePct !== 0)
+    .filter(p => p.quantity > 0 && Number.isFinite(p.dayChangePct))
     .slice()
     .sort((a, b) => b.dayChangePct - a.dayChangePct);
   const winners = ranked.filter(p => p.dayChangePct > 0).slice(0, 3);
   const losers  = ranked.filter(p => p.dayChangePct < 0).slice(-3).reverse();
   const node = document.getElementById("overviewMovers");
   if (!node) return;
+
   if (!winners.length && !losers.length) {
-    node.innerHTML = empty("No daily movement yet");
+    node.innerHTML = empty(positions.length
+      ? "No movement yet today"
+      : "Add a position to track movers");
     return;
   }
+
   const all = [...winners, ...losers];
   const maxAbs = Math.max(...all.map(p => Math.abs(p.dayChangePct))) || 1;
+
+  // Divergent bar — fill extends right from center for winners, left from center for losers.
+  // Each side reaches 50% of the track at the maximum |%| in the set, so the biggest
+  // mover on each side fills its half.
   const bar = pos => {
-    const tone = pos.dayChangePct >= 0 ? "up" : "dn";
-    const fill = Math.max(4, Math.min(100, (Math.abs(pos.dayChangePct) / maxAbs) * 100));
+    const isUp = pos.dayChangePct >= 0;
+    const fillPct = Math.max(2, Math.min(50, (Math.abs(pos.dayChangePct) / maxAbs) * 50));
     return `
       <div class="mover-bar-row" data-select-asset="${pos.symbol}">
         <span class="mover-ticker">${pos.symbol}</span>
-        <span class="mover-track"><span class="mover-fill ${tone}" style="width:${fill.toFixed(1)}%"></span></span>
-        <span class="mover-pct mono ${tone}">${pct(pos.dayChangePct)}</span>
+        <span class="mover-track">
+          <span class="mover-fill ${isUp ? "up" : "dn"}" style="width:${fillPct.toFixed(1)}%"></span>
+        </span>
+        <span class="mover-pct mono ${isUp ? "up" : "dn"}">${pct(pos.dayChangePct)}</span>
       </div>`;
   };
+
   node.innerHTML = `
-    ${winners.length ? winners.map(bar).join("") : ""}
-    ${winners.length && losers.length ? '<div class="mover-divider"></div>' : ""}
-    ${losers.length ? losers.map(bar).join("") : ""}`;
+    ${winners.map(bar).join("")}
+    ${losers.map(bar).join("")}`;
 }
 
 function renderOverview() {
@@ -245,6 +257,7 @@ function renderOverview() {
   document.getElementById("overviewTasks").innerHTML = state.tasks.filter(t => !t.done).sort((a, b) => String(a.due).localeCompare(String(b.due))).slice(0, 5).map(t => compactRow(t.title, `${t.priority || "Medium"} | ${t.due || "No due date"}`, t.priority === "High" ? "accent" : "")).join("") || empty("No open tasks");
   document.getElementById("overviewIntel").innerHTML = state.news.slice(0, 5).map((item, i) => newsMini(item, i)).join("") || empty("No intel yet");
   document.getElementById("overviewHistory").innerHTML = state.snapshots.slice(0, 5).map(s => compactRow(s.title, `${money(s.portfolio.value)} | ${pct(s.portfolio.dayPct)}`, s.portfolio.dayPnl >= 0 ? "green" : "red")).join("") || empty("Capture your first snapshot");
+  renderMovers(port.positions);
 }
 
 function metric(label, value, sub, tone = "") { return `<div class="metric"><div class="metric-label">${label}</div><div class="metric-value ${tone}">${value}</div><div class="metric-sub">${sub}</div></div>`; }

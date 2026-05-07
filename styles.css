@@ -629,7 +629,7 @@ textarea { resize: vertical; min-height: 78px; }
 
 
 /* Overview Movers cell — compact horizontal bars */
-.movers-grid { display: flex; flex-direction: column; gap: 6px; }
+.movers-grid { display: flex; flex-direction: column; gap: 8px; }
 .mover-bar-row {
   display: grid;
   grid-template-columns: 56px 1fr 56px;
@@ -647,29 +647,38 @@ textarea { resize: vertical; min-height: 78px; }
   color: var(--bright);
   letter-spacing: .03em;
 }
+/* Divergent track — center line, fills grow outward to either side */
 .mover-track {
   position: relative;
   height: 6px;
   background: var(--line2);
   border-radius: 999px;
-  overflow: hidden;
+}
+.mover-track::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -2px;
+  bottom: -2px;
+  width: 1px;
+  background: var(--dim);
 }
 .mover-fill {
   position: absolute;
   top: 0;
   bottom: 0;
-  left: 0;
   border-radius: 999px;
   transition: width .35s ease;
 }
-.mover-fill.up { background: linear-gradient(90deg, rgba(103,170,125,.55), var(--green)); }
-.mover-fill.dn { background: linear-gradient(90deg, rgba(201,92,80,.55), var(--red)); }
+.mover-fill.up {
+  left: 50%;
+  background: linear-gradient(90deg, rgba(103,170,125,.45), var(--green));
+}
+.mover-fill.dn {
+  right: 50%;
+  background: linear-gradient(90deg, var(--red), rgba(201,92,80,.45));
+}
 .mover-pct {
   font-size: 11px;
   text-align: right;
-}
-.mover-divider {
-  height: 1px;
-  background: var(--line);
-  margin: 6px 0;
 }
