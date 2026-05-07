@@ -124,8 +124,8 @@ async function loadServerState() {
 }
 
 async function refreshAuthStatus() {
-  try { const r = await apiRequest("status.php"); auth = { checked: true, configured: Boolean(r.configured), authenticated: Boolean(r.authenticated), registrationOpen: Boolean(r.registrationOpen), marketDataConfigured: Boolean(r.marketDataConfigured), marketDataProvider: r.marketDataProvider || "", newsDataConfigured: Boolean(r.newsDataConfigured), user: r.user || null, error: "", csrfToken: r.csrfToken || "" }; }
-  catch (e) { auth = { checked: true, configured: Boolean(e.data?.configured), authenticated: false, registrationOpen: false, marketDataConfigured: false, marketDataProvider: "", newsDataConfigured: false, user: null, error: e.message, csrfToken: "" }; }
+  try { const r = await apiRequest("status.php"); auth = { checked: true, configured: Boolean(r.configured), authenticated: Boolean(r.authenticated), registrationOpen: Boolean(r.registrationOpen), marketDataConfigured: Boolean(r.marketDataConfigured), marketDataProvider: r.marketDataProvider || "", newsDataConfigured: Boolean(r.newsDataConfigured), user: r.user || null, error: "", csrfToken: r.csrfToken || "", isAdmin: Boolean(r.isAdmin) }; }
+  catch (e) { auth = { checked: true, configured: Boolean(e.data?.configured), authenticated: false, registrationOpen: false, marketDataConfigured: false, marketDataProvider: "", newsDataConfigured: false, user: null, error: e.message, csrfToken: "", isAdmin: false }; }
 }
 
 function setAuthMessage(msg) { const n = document.getElementById("authMessage"); if (n) n.textContent = msg || ""; }
@@ -192,7 +192,7 @@ function estimateTax({ symbol, quantity, price, date, shortRate, longRate }) {
   return { rows, remaining, proceeds: rows.reduce((s, r) => s + r.proceeds, 0), basis: rows.reduce((s, r) => s + r.basis, 0), gain: rows.reduce((s, r) => s + r.gain, 0), tax: rows.reduce((s, r) => s + r.tax, 0) };
 }
 
-function render() { saveState(); renderClock(); renderTopState(); updateAuthGate(); renderOverview(); renderPortfolio(); renderTasks(); renderIntel(); renderHistory(); renderProfile(); renderAlerts(); renderPushStatus(); renderUserChip(); hydrateSelects(); renderConflictBanner(); renderAlertBanner(); }
+function render() { saveState(); renderClock(); renderTopState(); updateAuthGate(); renderOverview(); renderPortfolio(); renderTasks(); renderIntel(); renderHistory(); renderProfile(); renderInvitations(); renderAlerts(); renderPushStatus(); renderUserChip(); hydrateSelects(); renderConflictBanner(); renderAlertBanner(); }
 function renderClock() { document.getElementById("clock").textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }); document.getElementById("overviewTitle").textContent = new Date().toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" }); }
 
 function renderTopState() {
@@ -993,6 +993,21 @@ document.addEventListener("click", event => {
     }
   }
 
+  const inviteActionEl = event.target.closest("[data-invite-action]");
+  if (inviteActionEl) {
+    const action = inviteActionEl.dataset.inviteAction;
+    const id = Number(inviteActionEl.dataset.inviteId);
+    if (id) {
+      if (action === "revoke") {
+        if (confirm("Revoke this invitation? The link will stop working.")) {
+          revokeInvitation(id).then(() => { renderInvitations(); }).catch(err => alert(err.message));
+        }
+      } else if (action === "resend") {
+        resendInvitation(id).then(r => { renderInvitations(); alert(r.emailSent ? "Invitation re-sent." : "Re-send failed; check email config."); }).catch(err => alert(err.message));
+      }
+    }
+  }
+
   const newsFilter = event.target.closest("[data-news-filter]")?.dataset.newsFilter;
   if (newsFilter) { state.newsFilter = newsFilter; render(); }
   const symbol = event.target.closest("[data-select-asset]")?.dataset.selectAsset;
@@ -1154,6 +1169,7 @@ document.getElementById("loginForm").addEventListener("submit", async e => {
     await refreshAuthStatus();
     await loadServerState();
     await loadSnapshots();
+    if (auth.isAdmin) await loadInvitations();
     updateAuthGate();
     render();
   }
@@ -1349,6 +1365,196 @@ function renderPushStatus() {
   if (disableBtn) disableBtn.onclick = () => disablePush().catch(e => alert(e.message));
 }
 
+
+// =====================
+// Invitations (admin only)
+// =====================
+let invitationsCache = [];
+
+async function loadInvitations() {
+  if (!auth.configured || !auth.authenticated || !auth.isAdmin) { invitationsCache = []; return; }
+  try {
+    const r = await apiRequest("invitations.php");
+    invitationsCache = Array.isArray(r.invitations) ? r.invitations : [];
+  } catch (e) {
+    setAuthMessage(e.message);
+  }
+}
+
+async function createInvitation(email, note) {
+  const result = await apiRequest("invitations.php", {
+    method: "POST",
+    body: JSON.stringify({ action: "create", email, note: note || null })
+  });
+  await loadInvitations();
+  return result;
+}
+
+async function revokeInvitation(id) {
+  await apiRequest("invitations.php", { method: "POST", body: JSON.stringify({ action: "revoke", id }) });
+  await loadInvitations();
+}
+
+async function resendInvitation(id) {
+  return await apiRequest("invitations.php", { method: "POST", body: JSON.stringify({ action: "resend", id }) });
+}
+
+function renderInvitations() {
+  const node = document.getElementById("invitationsPanel");
+  if (!node) return;
+  if (!auth.isAdmin) { node.innerHTML = ""; return; }
+  const items = invitationsCache;
+  const counts = items.reduce((acc, i) => { acc[i.status] = (acc[i.status] || 0) + 1; return acc; }, {});
+  node.innerHTML = `
+    <div class="cell-head" style="margin-top:36px;">
+      <h2 class="cell-title">Beta invitations</h2>
+      <span class="sec-badge">${items.length} total</span>
+    </div>
+    <p class="muted small" style="margin-bottom:14px;">Send a private-beta invite. The recipient gets an email with a one-time link that expires in 14 days.</p>
+    <form id="inviteForm" class="invite-form">
+      <div class="form-grid">
+        <label class="wide">Email<input name="email" type="email" required placeholder="newuser@example.com"></label>
+        <label class="wide">Note (optional)<input name="note" placeholder="Hey, beta-testing this finance app — would love your feedback" maxlength="500"></label>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-primary" type="submit">Send Invitation</button>
+        <span class="muted mono small" id="inviteFormStatus"></span>
+      </div>
+    </form>
+    ${items.length ? `
+      <div class="invitations-list">
+        ${items.map(i => `
+          <div class="invitation-row invitation-${i.status}">
+            <div>
+              <div class="invitation-email">${i.email}</div>
+              <div class="invitation-meta">
+                <span class="invitation-pill ${i.status}">${i.status}</span>
+                ${i.acceptedAt ? `<span class="muted mono">accepted ${i.acceptedAt.slice(0, 10)}</span>` : ""}
+                ${i.status === "pending" ? `<span class="muted mono">expires ${i.expiresAt.slice(0, 10)}</span>` : ""}
+                ${i.status === "expired" ? `<span class="muted mono">expired ${i.expiresAt.slice(0, 10)}</span>` : ""}
+                ${i.note ? `<span class="muted">${i.note}</span>` : ""}
+              </div>
+            </div>
+            <div class="invitation-actions">
+              ${i.status === "pending" ? `<button class="btn btn-ghost" type="button" data-invite-action="resend" data-invite-id="${i.id}">Resend</button>` : ""}
+              ${i.status === "pending" || i.status === "expired" ? `<button class="btn btn-danger" type="button" data-invite-action="revoke" data-invite-id="${i.id}">Revoke</button>` : ""}
+            </div>
+          </div>
+        `).join("")}
+      </div>
+    ` : "<div class='empty' style='padding:14px 0'>No invitations sent yet.</div>"}`;
+
+  const form = document.getElementById("inviteForm");
+  if (form) {
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const data = Object.fromEntries(new FormData(form).entries());
+      const status = document.getElementById("inviteFormStatus");
+      if (status) status.textContent = "Sending…";
+      try {
+        const result = await createInvitation(data.email.trim(), (data.note || "").trim());
+        if (status) status.textContent = result.message || "Invitation sent.";
+        form.reset();
+        renderInvitations();
+      } catch (err) {
+        if (status) status.textContent = err.message;
+      }
+    };
+  }
+}
+
+// =====================
+// Invitation redemption (public ?invite= flow)
+// =====================
+let pendingInvite = null;
+
+async function detectInviteToken() {
+  const token = new URLSearchParams(window.location.search).get("invite");
+  if (!token) return false;
+  try {
+    const r = await apiRequest(`invitations.php?token=${encodeURIComponent(token)}`);
+    pendingInvite = { token, email: r.email, expiresAt: r.expiresAt };
+    return true;
+  } catch (e) {
+    pendingInvite = { token, error: e.message };
+    return true;
+  }
+}
+
+function renderInviteRedeem() {
+  const gate = document.getElementById("authGate");
+  if (!pendingInvite || !gate) return;
+  // Replace the auth panel's body with a redeem flow
+  const panel = gate.querySelector(".auth-panel");
+  if (!panel || panel.dataset.mode === "invite") return;
+  panel.dataset.mode = "invite";
+  if (pendingInvite.error) {
+    panel.innerHTML = `
+      <div class="wordmark auth-wordmark"><img class="wordmark-logo" src="logo.png" alt=""><span class="wordmark-text">My DailyEdge</span></div>
+      <p class="hero-eyebrow">Invitation</p>
+      <h1>Invitation unavailable</h1>
+      <p class="auth-copy">${pendingInvite.error}</p>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" type="button" id="inviteToLogin">Continue to sign in</button>
+      </div>`;
+    document.getElementById("inviteToLogin").onclick = () => {
+      pendingInvite = null;
+      panel.dataset.mode = "";
+      // Strip ?invite= from URL
+      const u = new URL(window.location.href);
+      u.searchParams.delete("invite");
+      window.history.replaceState({}, "", u.toString());
+      // Force a normal auth render
+      panel.innerHTML = "";
+      window.location.reload();
+    };
+    gate.hidden = false;
+    return;
+  }
+
+  panel.innerHTML = `
+    <div class="wordmark auth-wordmark"><img class="wordmark-logo" src="logo.png" alt=""><span class="wordmark-text">My DailyEdge</span></div>
+    <p class="hero-eyebrow">Private beta invitation</p>
+    <h1>Welcome — set your password</h1>
+    <p class="auth-copy">You've been invited to My DailyEdge. Pick a password to create your account.</p>
+    <form id="inviteRedeemForm" class="auth-form">
+      <label>Email<input type="email" value="${pendingInvite.email}" readonly disabled></label>
+      <label>Password<input name="password" type="password" autocomplete="new-password" minlength="10" required placeholder="At least 10 characters"></label>
+      <div class="modal-actions">
+        <button class="btn btn-primary" type="submit">Create Account</button>
+      </div>
+    </form>
+    <div class="modal-note" id="inviteRedeemMessage"></div>`;
+  gate.hidden = false;
+  document.getElementById("inviteRedeemForm").onsubmit = async (e) => {
+    e.preventDefault();
+    const password = e.target.password.value;
+    const msg = document.getElementById("inviteRedeemMessage");
+    msg.textContent = "Creating account…";
+    try {
+      const result = await apiRequest("invitations.php", {
+        method: "POST",
+        body: JSON.stringify({ action: "redeem", token: pendingInvite.token, password })
+      });
+      if (result.csrfToken) auth.csrfToken = result.csrfToken;
+      pendingInvite = null;
+      panel.dataset.mode = "";
+      // Clean the URL
+      const u = new URL(window.location.href);
+      u.searchParams.delete("invite");
+      window.history.replaceState({}, "", u.toString());
+      await refreshAuthStatus();
+      await loadServerState();
+      await loadSnapshots();
+      await loadAlerts();
+      gate.hidden = true;
+      render();
+    } catch (err) {
+      msg.textContent = err.message;
+    }
+  };
+}
+
 function setupMobileMenu() {
   const btn = document.getElementById("mobileMenuBtn"); const nav = document.getElementById("topbarCenter");
   if (!btn || !nav) return;
@@ -1364,7 +1570,21 @@ async function initApp() {
   setupUserChip();
   renderClock();
   await refreshAuthStatus();
-  if (auth.configured && auth.authenticated) { await loadServerState(); await refreshChartHistory(state.chartRange, true); await loadAlerts(); await loadSnapshots(); }
+
+  // If the URL has an ?invite= token, route into the redemption flow before anything else
+  if (auth.configured && !auth.authenticated && await detectInviteToken()) {
+    renderInviteRedeem();
+    return;
+  }
+
+  if (auth.configured && auth.authenticated) {
+    await loadServerState();
+    await refreshChartHistory(state.chartRange, true);
+    await loadAlerts();
+    await loadSnapshots();
+    if (auth.isAdmin) await loadInvitations();
+  }
+  await refreshPushStatus();
   render();
 }
 

@@ -697,3 +697,52 @@ textarea { resize: vertical; min-height: 78px; }
   font-size: 11px;
   text-align: right;
 }
+
+
+/* Beta invitations panel */
+.invite-form { padding: 4px 0 18px; border-bottom: 1px solid var(--line); margin-bottom: 14px; }
+.invite-form .form-grid { gap: 12px; }
+.invitations-list { display: flex; flex-direction: column; }
+.invitation-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+.invitation-row:last-child { border-bottom: 0; }
+.invitation-email {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--bright);
+  letter-spacing: .02em;
+}
+.invitation-meta {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  font-size: 11px;
+}
+.invitation-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  border: 1px solid var(--line2);
+}
+.invitation-pill.pending { color: var(--accent); border-color: rgba(232,213,176,.35); background: rgba(232,213,176,.08); }
+.invitation-pill.accepted { color: var(--green); border-color: rgba(103,170,125,.35); background: rgba(103,170,125,.08); }
+.invitation-pill.expired { color: var(--muted); }
+.invitation-pill.revoked { color: var(--red); border-color: rgba(201,92,80,.35); background: rgba(201,92,80,.08); }
+.invitation-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.invitation-actions .btn { padding: 4px 10px; font-size: 10px; min-height: 30px; }
+@media (max-width: 780px) {
+  .invitation-row { flex-direction: column; align-items: flex-start; }
+  .invitation-actions { width: 100%; justify-content: flex-end; }
+}

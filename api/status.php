@@ -13,6 +13,13 @@ if (!config_exists()) {
 }
 
 $user = current_user();
+$isAdmin = false;
+if ($user) {
+    $stmt = db()->prepare('SELECT is_admin FROM users WHERE id = ?');
+    $stmt->execute([(int) $user['id']]);
+    $row = $stmt->fetch();
+    $isAdmin = !empty($row['is_admin']);
+}
 $users = user_count();
 
 respond([
@@ -26,4 +33,5 @@ respond([
     'newsDataConfigured' => !empty($config['alpha_vantage_api_key']),
     'userCount' => $users,
     'csrfToken' => csrf_token(),
+    'isAdmin' => $isAdmin,
 ]);
