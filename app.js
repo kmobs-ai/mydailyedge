@@ -914,8 +914,14 @@ function setTradeLookupStatus(message, tone = "") {
 }
 
 async function lookupTradeAsset() {
-  const form = document.getElementById("tradeForm");
-  const symbolInput = form.elements.symbol;
+  const symbolInput = document.getElementById("tradeAsset");
+  const nameInput = document.getElementById("tradeAssetName");
+  const typeSelect = document.getElementById("tradeAssetType");
+  const priceInput = document.querySelector("#tradeForm [name='price']");
+  if (!symbolInput) {
+    console.warn("[trade-lookup] tradeAsset input not found in DOM");
+    return;
+  }
   const symbol = (symbolInput.value || "").trim().toUpperCase();
   if (!symbol) {
     setTradeLookupStatus("Enter a ticker first.", "red");
@@ -928,10 +934,10 @@ async function lookupTradeAsset() {
   if (existing) {
     tradeLookupCache = null;
     symbolInput.value = symbol;
-    form.elements.name.value = existing.name || symbol;
-    form.elements.type.value = existing.type || "stock";
-    if (!form.elements.price.value) {
-      form.elements.price.value = Number(existing.price || 0).toFixed(existing.type === "crypto" ? 2 : 4);
+    if (nameInput) nameInput.value = existing.name || symbol;
+    if (typeSelect) typeSelect.value = existing.type || "stock";
+    if (priceInput && !priceInput.value) {
+      priceInput.value = Number(existing.price || 0).toFixed(existing.type === "crypto" ? 2 : 4);
     }
     setTradeLookupStatus(`Using ${symbol} from your portfolio — current price ${money2(existing.price)}.`, "green");
     return;
@@ -948,10 +954,10 @@ async function lookupTradeAsset() {
     const asset = result.asset;
     tradeLookupCache = asset;
     symbolInput.value = asset.symbol || symbol;
-    form.elements.name.value = asset.name || symbol;
-    form.elements.type.value = asset.assetType || "stock";
-    if (asset.price) {
-      form.elements.price.value = Number(asset.price).toFixed(asset.assetType === "crypto" ? 2 : 4);
+    if (nameInput) nameInput.value = asset.name || symbol;
+    if (typeSelect) typeSelect.value = asset.assetType || "stock";
+    if (priceInput && asset.price) {
+      priceInput.value = Number(asset.price).toFixed(asset.assetType === "crypto" ? 2 : 4);
     }
     setTradeLookupStatus(`Found ${asset.symbol || symbol} (${asset.name || asset.assetType}). Saving the trade will add it to your portfolio.`, "green");
   } catch (e) {
@@ -1158,11 +1164,11 @@ document.addEventListener("click", event => {
   const snapId = event.target.closest("[data-select-snapshot]")?.dataset.selectSnapshot;
   if (snapId) { state.selectedSnapshotId = snapId; render(); }
   if (event.target.closest("#portfolioRefreshBtn")) refreshLiveData();
+  if (event.target.closest("#tradeLookupBtn")) { event.preventDefault(); lookupTradeAsset(); }
 });
 
 document.getElementById("assetForm").addEventListener("submit", e => { e.preventDefault(); upsertAsset(e.currentTarget); e.currentTarget.reset(); setAssetLookupStatus("Lookup connects the asset to server-side market data for future refreshes."); closeModals(); render(); });
 document.getElementById("assetLookupBtn").addEventListener("click", lookupAssetMarketData);
-document.getElementById("tradeLookupBtn")?.addEventListener("click", lookupTradeAsset);
 document.getElementById("tradeForm").addEventListener("submit", e => { e.preventDefault(); recordTrade(e.currentTarget); e.currentTarget.reset(); closeModals(); render(); });
 document.getElementById("taskForm").addEventListener("submit", e => { e.preventDefault(); addTask(e.currentTarget); e.currentTarget.reset(); closeModals(); render(); });
 document.getElementById("alertForm").addEventListener("submit", e => { e.preventDefault(); submitAlertForm(e.currentTarget).then(() => e.currentTarget.reset()); });
