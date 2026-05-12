@@ -854,9 +854,26 @@ function switchTab(tab) {
 
 function openModal(id) {
   if (id === "assetModal") resetAssetForm();
-  if (id === "tradeModal") { tradeLookupCache = null; setTradeLookupStatus("Type a ticker and click Lookup to fetch live name and price. New tickers will be added to your portfolio automatically."); }
+  if (id === "tradeModal") {
+    tradeLookupCache = null;
+    setTradeLookupStatus("Type a ticker and click Lookup to fetch live name and price. New tickers will be added to your portfolio automatically.");
+    const tradeForm = document.getElementById("tradeForm");
+    if (tradeForm) {
+      tradeForm.elements.name.value = "";
+      tradeForm.elements.type.value = "stock";
+    }
+  }
   document.getElementById(id).classList.add("open"); document.getElementById(id).setAttribute("aria-hidden", "false");
-  if (id === "tradeModal" && state.selectedSymbol) { const t = document.getElementById("tradeAsset"); if (t) t.value = state.selectedSymbol; }
+  if (id === "tradeModal" && state.selectedSymbol) {
+    const t = document.getElementById("tradeAsset");
+    if (t) t.value = state.selectedSymbol;
+    const tradeForm = document.getElementById("tradeForm");
+    const existing = state.assets.find(a => a.symbol === state.selectedSymbol);
+    if (tradeForm && existing) {
+      tradeForm.elements.name.value = existing.name || existing.symbol;
+      tradeForm.elements.type.value = existing.type || "stock";
+    }
+  }
 }
 
 function openAssetEditor(symbol) { resetAssetForm(); fillAssetForm(symbol); document.getElementById("assetModal").classList.add("open"); document.getElementById("assetModal").setAttribute("aria-hidden", "false"); }
@@ -905,28 +922,35 @@ async function lookupTradeAsset() {
     symbolInput.focus();
     return;
   }
-  // If it's already in the portfolio, pre-fill price from the local asset (no API call needed)
+
+  // If it's already in the portfolio, fill from local state — no API call needed.
   const existing = state.assets.find(a => a.symbol === symbol);
   if (existing) {
     tradeLookupCache = null;
+    symbolInput.value = symbol;
+    form.elements.name.value = existing.name || symbol;
+    form.elements.type.value = existing.type || "stock";
     if (!form.elements.price.value) {
       form.elements.price.value = Number(existing.price || 0).toFixed(existing.type === "crypto" ? 2 : 4);
     }
-    symbolInput.value = symbol;
     setTradeLookupStatus(`Using ${symbol} from your portfolio — current price ${money2(existing.price)}.`, "green");
     return;
   }
+
   if (!auth.configured || !auth.authenticated) {
     setTradeLookupStatus("Sign in before using server-side lookup. You can still enter the trade manually.", "red");
     return;
   }
+
   setTradeLookupStatus(`Looking up ${symbol}…`);
   try {
     const result = await apiRequest(`market.php?type=lookup&symbol=${encodeURIComponent(symbol)}`, { method: "GET", headers: {} });
     const asset = result.asset;
     tradeLookupCache = asset;
     symbolInput.value = asset.symbol || symbol;
-    if (asset.price && !form.elements.price.value) {
+    form.elements.name.value = asset.name || symbol;
+    form.elements.type.value = asset.assetType || "stock";
+    if (asset.price) {
       form.elements.price.value = Number(asset.price).toFixed(asset.assetType === "crypto" ? 2 : 4);
     }
     setTradeLookupStatus(`Found ${asset.symbol || symbol} (${asset.name || asset.assetType}). Saving the trade will add it to your portfolio.`, "green");
@@ -959,8 +983,12 @@ function recordTrade(form) {
   const symbol = ((data.symbol || state.selectedSymbol) || "").trim().toUpperCase();
   if (!symbol) return;
 
-  // If the asset isn't in the portfolio yet, create it. Prefer the lookup result
-  // (server-side quote + name) but fall back to a manual stub using the trade price.
+  const userName = (data.name || "").trim();
+  const userType = (data.type || "").trim().toLowerCase();
+
+  // If the asset isn't in the portfolio yet, create it. Prefer the form values
+  // (which the user may have just edited after a lookup), then fall back to the
+  // cached lookup, then to sensible manual defaults using the trade price.
   let asset = state.assets.find(a => a.symbol === symbol);
   if (!asset) {
     const looked = tradeLookupCache && (tradeLookupCache.symbol || "").toUpperCase() === symbol ? tradeLookupCache : null;
@@ -968,8 +996,8 @@ function recordTrade(form) {
     const linked = !!looked;
     asset = {
       symbol,
-      name: looked?.name || symbol,
-      type: looked?.assetType || "stock",
+      name: userName || looked?.name || symbol,
+      type: userType || looked?.assetType || "stock",
       price: Number(looked?.price || tradePrice),
       previousClose: Number(looked?.previousClose || tradePrice),
       targetWeight: 0,
@@ -981,6 +1009,12 @@ function recordTrade(form) {
       quoteUpdatedAt: linked ? new Date().toISOString() : null,
     };
     state.assets.push(asset);
+  } else {
+    // If the user edited name/type, propagate the change to the existing asset.
+    let touched = false;
+    if (userName && userName !== asset.name) { asset.name = userName; touched = true; }
+    if (userType && userType !== asset.type) { asset.type = userType; touched = true; }
+    if (touched) { /* state.assets was mutated in place; saveState() runs after render */ }
   }
   tradeLookupCache = null;
 

@@ -378,6 +378,17 @@
           </span>
         </label>
         <datalist id="tradeAssetList"></datalist>
+        <label>Name<input name="name" id="tradeAssetName" placeholder="Apple Inc."></label>
+        <label>Type
+          <select name="type" id="tradeAssetType">
+            <option>stock</option>
+            <option>etf</option>
+            <option>crypto</option>
+            <option>fund</option>
+            <option>cash</option>
+            <option>other</option>
+          </select>
+        </label>
         <label>Action<select name="action"><option value="buy">Buy</option><option value="sell">Sell</option><option value="deposit">Deposit</option><option value="withdraw">Withdraw</option></select></label>
         <label>Quantity<input name="quantity" type="number" step="0.000001" required placeholder="10"></label>
         <label>Price<input name="price" type="number" step="0.0001" required placeholder="100"></label>
