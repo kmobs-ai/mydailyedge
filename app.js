@@ -200,6 +200,132 @@ function renderTopState() {
 }
 
 
+
+// =========================
+// Tiny SVG visualizations
+// =========================
+
+/**
+ * Render a small inline sparkline into an SVG element.
+ * @param {SVGElement} svg     the <svg> node to populate
+ * @param {Array<number>} data ordered oldest-to-newest values
+ * @param {string} color       stroke color (also used for fill at low opacity)
+ */
+function renderSparkline(svg, data, color) {
+  if (!svg) return;
+  const points = (data || []).filter(v => Number.isFinite(v));
+  if (points.length < 2) { svg.innerHTML = ""; return; }
+  const w = 100, h = 28;
+  const min = Math.min(...points), max = Math.max(...points);
+  const range = max - min || 1;
+  const stepX = w / (points.length - 1);
+  const coords = points.map((v, i) => [i * stepX, h - 2 - ((v - min) / range) * (h - 4)]);
+  const line = coords.map(([x, y], i) => (i === 0 ? `M${x.toFixed(1)},${y.toFixed(1)}` : `L${x.toFixed(1)},${y.toFixed(1)}`)).join("");
+  const area = `${line} L${w},${h} L0,${h} Z`;
+  svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
+  svg.setAttribute("preserveAspectRatio", "none");
+  svg.innerHTML = `
+    <path d="${area}" fill="${color}" opacity="0.18"></path>
+    <path d="${line}" fill="none" stroke="${color}" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"></path>`;
+}
+
+/**
+ * Render a donut chart. Segments share radius; values are summed for percentages.
+ * @param {Element} container target div
+ * @param {Array<{label, value, color}>} segments
+ * @param {Object} opts { size?: 120, thickness?: 14, centerLabel?, centerSub? }
+ */
+function renderDonut(container, segments, opts = {}) {
+  if (!container) return;
+  const size = opts.size || 120;
+  const thickness = opts.thickness || 14;
+  const r = (size - thickness) / 2;
+  const cx = size / 2, cy = size / 2;
+  const total = segments.reduce((s, x) => s + Math.max(0, Number(x.value) || 0), 0);
+  if (!total) {
+    container.innerHTML = `<div class="donut-empty" style="width:${size}px;height:${size}px;border:${thickness}px solid var(--line2);border-radius:50%;"></div>`;
+    return;
+  }
+  const C = 2 * Math.PI * r;
+  let offset = 0;
+  const arcs = segments.map(seg => {
+    const v = Math.max(0, Number(seg.value) || 0);
+    const len = (v / total) * C;
+    const dash = `${len.toFixed(2)} ${(C - len).toFixed(2)}`;
+    const circle = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${seg.color}" stroke-width="${thickness}" stroke-dasharray="${dash}" stroke-dashoffset="${(-offset).toFixed(2)}" transform="rotate(-90 ${cx} ${cy})"/>`;
+    offset += len;
+    return circle;
+  }).join("");
+  const centerLabelHTML = opts.centerLabel ? `<text x="${cx}" y="${cy - 2}" text-anchor="middle" class="donut-center">${opts.centerLabel}</text>` : "";
+  const centerSubHTML = opts.centerSub ? `<text x="${cx}" y="${cy + 12}" text-anchor="middle" class="donut-center-sub">${opts.centerSub}</text>` : "";
+  container.innerHTML = `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" class="donut-svg">${arcs}${centerLabelHTML}${centerSubHTML}</svg>`;
+}
+
+function renderHeroSparklines(port) {
+  // Pull series from server-side snapshotsCache. Ordered oldest → newest.
+  const snaps = (snapshotsCache && snapshotsCache.length ? snapshotsCache : state.snapshots || []).slice().sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  const valueSeries = snaps.map(s => Number(s.portfolio?.value || 0));
+  const gainSeries  = snaps.map(s => Number(s.portfolio?.gain || 0));
+  const dayPnlSeries = snaps.map(s => Number(s.portfolio?.dayPnl || 0));
+  // Always include today's live values as the last point so the spark visually catches the latest move.
+  valueSeries.push(port.value); gainSeries.push(port.gain); dayPnlSeries.push(port.dayPnl);
+
+  const accent = "#e8d5b0";
+  const upGreen = "#67aa7d";
+  const dnRed = "#c95c50";
+  renderSparkline(document.getElementById("sparkValue"), valueSeries, accent);
+  renderSparkline(document.getElementById("sparkInvested"), gainSeries, port.gain >= 0 ? upGreen : dnRed);
+}
+
+function renderAllocation(port) {
+  const container = document.getElementById("allocationDonut");
+  const legend = document.getElementById("allocationLegend");
+  const classLegend = document.getElementById("allocationClassLine");
+  if (!container) return;
+
+  const positions = port.positions.filter(p => p.value > 0).sort((a, b) => b.value - a.value);
+  if (!positions.length) {
+    container.innerHTML = empty("No positions yet");
+    if (legend) legend.innerHTML = "";
+    if (classLegend) classLegend.innerHTML = "";
+    return;
+  }
+
+  const topN = 5;
+  const top = positions.slice(0, topN);
+  const otherValue = positions.slice(topN).reduce((s, p) => s + p.value, 0);
+  const segments = top.map(p => ({ label: p.symbol, value: p.value, color: p.color || "#e8d5b0" }));
+  if (otherValue > 0) segments.push({ label: "Other", value: otherValue, color: "#5f5e5a" });
+
+  const total = port.value || segments.reduce((s, x) => s + x.value, 0);
+  renderDonut(container, segments, {
+    size: 130,
+    thickness: 16,
+    centerLabel: money(total),
+    centerSub: `${positions.length} holdings`,
+  });
+
+  if (legend) {
+    legend.innerHTML = segments.map(s => `
+      <div class="allocation-legend-row">
+        <span class="allocation-swatch" style="background:${s.color}"></span>
+        <span class="allocation-label">${s.label}</span>
+        <span class="allocation-pct mono">${total ? ((s.value / total) * 100).toFixed(1) : "0.0"}%</span>
+      </div>`).join("");
+  }
+
+  // Asset-class one-liner: e.g. "Crypto 85.1% · Stocks 14.9%"
+  if (classLegend) {
+    const byClass = {};
+    for (const p of positions) {
+      const k = (p.type || "other").toLowerCase();
+      byClass[k] = (byClass[k] || 0) + p.value;
+    }
+    const order = Object.entries(byClass).sort((a, b) => b[1] - a[1]);
+    classLegend.innerHTML = order.map(([cls, val]) => `<span><strong>${cls.charAt(0).toUpperCase() + cls.slice(1)}</strong> ${total ? ((val / total) * 100).toFixed(1) : "0.0"}%</span>`).join(" · ");
+  }
+}
+
 function renderMovers(positions) {
   // Use Number.isFinite + a permissive filter — even tiny moves are interesting,
   // and exact-zero is rare unless the asset has no previousClose set.
@@ -249,9 +375,9 @@ function renderOverview() {
   const todayTasks = openTasks.filter(t => t.due && t.due <= todayISO());
   document.getElementById("dailyBrief").textContent = `${port.dayPnl >= 0 ? "Portfolio is higher" : "Portfolio is lower"} today with ${todayTasks.length} time-sensitive tasks and ${state.news.length} intel items in the queue.`;
   document.getElementById("overviewSummary").innerHTML = [
-    metric("Portfolio Value", money(port.value), `${pct(port.dayPct)} today`, port.dayPnl >= 0 ? "up" : "dn"),
-    metric("Invested Capital", money(port.cost), `${money(port.gain)} total P&L`, port.gain >= 0 ? "up" : "dn"),
-    metric("Open Tasks", openTasks.length, `${todayTasks.length} due now`, todayTasks.length ? "accent" : "")
+    metric("Portfolio Value", money(port.value), `${pct(port.dayPct)} today`, port.dayPnl >= 0 ? "up" : "dn", "sparkValue"),
+    metric("Invested Capital", money(port.cost), `${money(port.gain)} total P&L`, port.gain >= 0 ? "up" : "dn", "sparkInvested"),
+    metric("Open Tasks", openTasks.length, `${todayTasks.length} due now`, todayTasks.length ? "accent" : "", "")
   ].join("");
   document.getElementById("overviewPortfolio").innerHTML = port.positions.sort((a, b) => b.value - a.value).map(p => positionMini(p, port.value)).join("");
   document.getElementById("overviewTasks").innerHTML = state.tasks.filter(t => !t.done).sort((a, b) => String(a.due).localeCompare(String(b.due))).slice(0, 5).map(t => compactRow(t.title, `${t.priority || "Medium"} | ${t.due || "No due date"}`, t.priority === "High" ? "accent" : "")).join("") || empty("No open tasks");
@@ -259,9 +385,14 @@ function renderOverview() {
   const overviewSnaps = (snapshotsCache && snapshotsCache.length ? snapshotsCache : state.snapshots) || [];
   document.getElementById("overviewHistory").innerHTML = overviewSnaps.slice(0, 5).map(s => compactRow(s.title, `${money(s.portfolio.value)} | ${pct(s.portfolio.dayPct)}`, s.portfolio.dayPnl >= 0 ? "green" : "red")).join("") || empty("Capture your first snapshot");
   renderMovers(port.positions);
+  renderHeroSparklines(port);
+  renderAllocation(port);
 }
 
-function metric(label, value, sub, tone = "") { return `<div class="metric"><div class="metric-label">${label}</div><div class="metric-value ${tone}">${value}</div><div class="metric-sub">${sub}</div></div>`; }
+function metric(label, value, sub, tone = "", sparkId = "") {
+  const spark = sparkId ? `<svg id="${sparkId}" class="metric-spark" preserveAspectRatio="none" viewBox="0 0 100 28"></svg>` : "";
+  return `<div class="metric"><div class="metric-label">${label}</div><div class="metric-value ${tone}">${value}</div>${spark}<div class="metric-sub">${sub}</div></div>`;
+}
 function positionMini(pos, total) { const w = total ? (pos.value / total) * 100 : 0; return `<div class="position-item" data-select-asset="${pos.symbol}"><div class="row-top"><div><div class="ticker">${pos.symbol}</div><div class="asset-name">${pos.name}</div></div><div class="price-block"><div class="mono">${money(pos.value)}</div><div class="mono ${pos.dayChangePct >= 0 ? "up" : "dn"}">${pct(pos.dayChangePct)}</div></div></div><div class="alloc-track"><div class="alloc-fill" style="width:${Math.min(100, w)}%;background:${pos.color}"></div></div></div>`; }
 function compactRow(title, meta, tone = "") { return `<div class="activity-row"><div><div>${title}</div><div class="muted mono">${meta}</div></div><span class="dot ${tone === "green" || tone === "committed" ? "green" : "accent"}"></span></div>`; }
 function newsMini(item, index) { return `<div class="activity-row"><span class="news-num">${String(index + 1).padStart(2, "0")}</span><div><div>${item.title}</div><div class="muted mono">${item.symbol} | ${item.source} | ${item.date}</div></div></div>`; }
