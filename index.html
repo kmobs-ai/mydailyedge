@@ -371,13 +371,20 @@
         <button type="button" class="modal-close" data-close-modal>&times;</button>
       </div>
       <div class="form-grid">
-        <label>Asset<select name="symbol" id="tradeAsset"></select></label>
+        <label class="wide">Ticker
+          <span class="field-with-action">
+            <input name="symbol" id="tradeAsset" required placeholder="AAPL — or pick from your portfolio" list="tradeAssetList" autocomplete="off">
+            <button class="btn btn-ghost" id="tradeLookupBtn" type="button">Lookup</button>
+          </span>
+        </label>
+        <datalist id="tradeAssetList"></datalist>
         <label>Action<select name="action"><option value="buy">Buy</option><option value="sell">Sell</option><option value="deposit">Deposit</option><option value="withdraw">Withdraw</option></select></label>
         <label>Quantity<input name="quantity" type="number" step="0.000001" required placeholder="10"></label>
         <label>Price<input name="price" type="number" step="0.0001" required placeholder="100"></label>
         <label>Date<input name="date" type="date" required></label>
         <label>Fees<input name="fees" type="number" step="0.01" value="0"></label>
       </div>
+      <div class="modal-note" id="tradeLookupStatus">Type a ticker and click Lookup to fetch live name and price. New tickers will be added to your portfolio automatically.</div>
       <label>Memo<textarea name="memo" rows="3" placeholder="Why this trade happened"></textarea></label>
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" data-close-modal>Cancel</button>

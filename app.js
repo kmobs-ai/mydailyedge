@@ -557,6 +557,8 @@ function renderIntel() {
 
 
 let snapshotsCache = [];
+let tradeLookupCache = null;
+
 let alertsCache = [];
 let alertsLoading = false;
 
@@ -803,7 +805,17 @@ function captureSnapshot() {
 
 function hydrateSelects() {
   const options = state.assets.map(a => `<option value="${a.symbol}">${a.symbol} - ${a.name}</option>`).join("");
-  ["tradeAsset","taxAsset"].forEach(id => { const s = document.getElementById(id); if (s) { s.innerHTML = options; s.value = state.selectedSymbol; } });
+
+  // taxAsset is still a <select>
+  const tax = document.getElementById("taxAsset");
+  if (tax && tax.tagName === "SELECT") { tax.innerHTML = options; tax.value = state.selectedSymbol; }
+
+  // tradeAsset is now an <input list="tradeAssetList"> — populate the datalist instead
+  const list = document.getElementById("tradeAssetList");
+  if (list) {
+    list.innerHTML = state.assets.map(a => `<option value="${a.symbol}">${a.symbol} — ${a.name}</option>`).join("");
+  }
+
   const taskAsset = document.getElementById("taskAsset"); if (taskAsset) taskAsset.innerHTML = `<option value="">None</option>${options}`;
   document.querySelector("#tradeForm [name='date']").value ||= todayISO();
   document.querySelector("#taxForm [name='date']").value ||= todayISO();
@@ -842,6 +854,7 @@ function switchTab(tab) {
 
 function openModal(id) {
   if (id === "assetModal") resetAssetForm();
+  if (id === "tradeModal") { tradeLookupCache = null; setTradeLookupStatus("Type a ticker and click Lookup to fetch live name and price. New tickers will be added to your portfolio automatically."); }
   document.getElementById(id).classList.add("open"); document.getElementById(id).setAttribute("aria-hidden", "false");
   if (id === "tradeModal" && state.selectedSymbol) { const t = document.getElementById("tradeAsset"); if (t) t.value = state.selectedSymbol; }
 }
@@ -874,6 +887,55 @@ function upsertAsset(form) {
   state.selectedSymbol = symbol;
 }
 
+
+function setTradeLookupStatus(message, tone = "") {
+  const node = document.getElementById("tradeLookupStatus");
+  if (!node) return;
+  node.textContent = message;
+  node.classList.toggle("green", tone === "green");
+  node.classList.toggle("red", tone === "red");
+}
+
+async function lookupTradeAsset() {
+  const form = document.getElementById("tradeForm");
+  const symbolInput = form.elements.symbol;
+  const symbol = (symbolInput.value || "").trim().toUpperCase();
+  if (!symbol) {
+    setTradeLookupStatus("Enter a ticker first.", "red");
+    symbolInput.focus();
+    return;
+  }
+  // If it's already in the portfolio, pre-fill price from the local asset (no API call needed)
+  const existing = state.assets.find(a => a.symbol === symbol);
+  if (existing) {
+    tradeLookupCache = null;
+    if (!form.elements.price.value) {
+      form.elements.price.value = Number(existing.price || 0).toFixed(existing.type === "crypto" ? 2 : 4);
+    }
+    symbolInput.value = symbol;
+    setTradeLookupStatus(`Using ${symbol} from your portfolio — current price ${money2(existing.price)}.`, "green");
+    return;
+  }
+  if (!auth.configured || !auth.authenticated) {
+    setTradeLookupStatus("Sign in before using server-side lookup. You can still enter the trade manually.", "red");
+    return;
+  }
+  setTradeLookupStatus(`Looking up ${symbol}…`);
+  try {
+    const result = await apiRequest(`market.php?type=lookup&symbol=${encodeURIComponent(symbol)}`, { method: "GET", headers: {} });
+    const asset = result.asset;
+    tradeLookupCache = asset;
+    symbolInput.value = asset.symbol || symbol;
+    if (asset.price && !form.elements.price.value) {
+      form.elements.price.value = Number(asset.price).toFixed(asset.assetType === "crypto" ? 2 : 4);
+    }
+    setTradeLookupStatus(`Found ${asset.symbol || symbol} (${asset.name || asset.assetType}). Saving the trade will add it to your portfolio.`, "green");
+  } catch (e) {
+    tradeLookupCache = null;
+    setTradeLookupStatus(e.message, "red");
+  }
+}
+
 async function lookupAssetMarketData() {
   const form = document.getElementById("assetForm"); const symbolInput = form.elements.symbol;
   const symbol = symbolInput.value.trim().toUpperCase();
@@ -894,8 +956,43 @@ async function lookupAssetMarketData() {
 
 function recordTrade(form) {
   const data = Object.fromEntries(new FormData(form).entries());
-  const symbol = data.symbol || state.selectedSymbol; if (!symbol) return;
-  state.trades.push({ id: uid(), symbol, action: data.action, quantity: Number(data.quantity || 0), price: Number(data.price || 0), fees: Number(data.fees || 0), date: data.date, memo: data.memo.trim() });
+  const symbol = ((data.symbol || state.selectedSymbol) || "").trim().toUpperCase();
+  if (!symbol) return;
+
+  // If the asset isn't in the portfolio yet, create it. Prefer the lookup result
+  // (server-side quote + name) but fall back to a manual stub using the trade price.
+  let asset = state.assets.find(a => a.symbol === symbol);
+  if (!asset) {
+    const looked = tradeLookupCache && (tradeLookupCache.symbol || "").toUpperCase() === symbol ? tradeLookupCache : null;
+    const tradePrice = Number(data.price || 0);
+    const linked = !!looked;
+    asset = {
+      symbol,
+      name: looked?.name || symbol,
+      type: looked?.assetType || "stock",
+      price: Number(looked?.price || tradePrice),
+      previousClose: Number(looked?.previousClose || tradePrice),
+      targetWeight: 0,
+      color: "#e8d5b0",
+      notes: "",
+      marketDataSymbol: symbol,
+      marketDataProvider: linked ? (looked.provider || "server") : "manual",
+      marketDataLinked: linked,
+      quoteUpdatedAt: linked ? new Date().toISOString() : null,
+    };
+    state.assets.push(asset);
+  }
+  tradeLookupCache = null;
+
+  state.trades.push({
+    id: uid(), symbol,
+    action: data.action,
+    quantity: Number(data.quantity || 0),
+    price: Number(data.price || 0),
+    fees: Number(data.fees || 0),
+    date: data.date,
+    memo: (data.memo || "").trim(),
+  });
   state.selectedSymbol = symbol;
 }
 
@@ -1031,6 +1128,7 @@ document.addEventListener("click", event => {
 
 document.getElementById("assetForm").addEventListener("submit", e => { e.preventDefault(); upsertAsset(e.currentTarget); e.currentTarget.reset(); setAssetLookupStatus("Lookup connects the asset to server-side market data for future refreshes."); closeModals(); render(); });
 document.getElementById("assetLookupBtn").addEventListener("click", lookupAssetMarketData);
+document.getElementById("tradeLookupBtn")?.addEventListener("click", lookupTradeAsset);
 document.getElementById("tradeForm").addEventListener("submit", e => { e.preventDefault(); recordTrade(e.currentTarget); e.currentTarget.reset(); closeModals(); render(); });
 document.getElementById("taskForm").addEventListener("submit", e => { e.preventDefault(); addTask(e.currentTarget); e.currentTarget.reset(); closeModals(); render(); });
 document.getElementById("alertForm").addEventListener("submit", e => { e.preventDefault(); submitAlertForm(e.currentTarget).then(() => e.currentTarget.reset()); });
