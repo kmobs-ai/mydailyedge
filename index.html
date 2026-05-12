@@ -73,6 +73,24 @@
 
         <div class="hero-summary" id="overviewSummary"></div>
 
+        <section class="overview-perf">
+          <div class="overview-perf-head">
+            <div>
+              <span class="sec-label">Portfolio over time</span>
+              <span class="overview-perf-summary" id="overviewPerfSummary"></span>
+            </div>
+            <div class="range-tabs" id="overviewRangeTabs">
+              <button class="range-tab" data-overview-range="7d">7D</button>
+              <button class="range-tab" data-overview-range="30d">30D</button>
+              <button class="range-tab active" data-overview-range="90d">90D</button>
+              <button class="range-tab" data-overview-range="ytd">YTD</button>
+              <button class="range-tab" data-overview-range="all">ALL</button>
+            </div>
+          </div>
+          <div class="overview-perf-canvas" id="overviewPerfChart"></div>
+          <div class="overview-perf-empty" id="overviewPerfEmpty" hidden>Snapshots will populate this chart once the daily cron has at least two rows for your account.</div>
+        </section>
+
         <div class="overview-grid">
           <section class="cell cell-portfolio">
             <div class="cell-head"><h2 class="cell-title">Portfolio</h2><button class="cell-link" data-tab="portfolio">Open</button></div>

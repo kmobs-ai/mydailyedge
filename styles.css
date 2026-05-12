@@ -828,3 +828,57 @@ textarea { resize: vertical; min-height: 78px; }
   .allocation-layout { flex-direction: column; gap: 14px; }
   .allocation-legend { width: 100%; }
 }
+
+
+/* Overview performance chart */
+.overview-perf {
+  background: var(--ink);
+  border-bottom: 1px solid var(--line);
+  padding: 16px 24px 18px;
+  position: relative;
+}
+.overview-perf-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.overview-perf-head .sec-label { display: inline-block; }
+.overview-perf-summary {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text);
+  letter-spacing: .04em;
+  margin-left: 12px;
+  padding-left: 12px;
+  border-left: 1px solid var(--line2);
+}
+.overview-perf-summary.up { color: var(--green); }
+.overview-perf-summary.dn { color: var(--red); }
+.overview-perf-canvas {
+  position: relative;
+  width: 100%;
+  height: 220px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(232,213,176,.02) 0%, rgba(10,10,11,0) 60%);
+}
+.overview-perf-empty {
+  padding: 28px 16px;
+  text-align: center;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  border: 1px dashed var(--line2);
+  border-radius: 4px;
+}
+@media (max-width: 780px) {
+  .overview-perf { padding: 14px 16px; }
+  .overview-perf-canvas { height: 180px; }
+  .overview-perf-summary { margin-left: 0; padding-left: 0; border-left: 0; display: block; margin-top: 4px; }
+}

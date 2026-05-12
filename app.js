@@ -16,7 +16,7 @@ const DEFAULT_PROFILE = { displayName: "", baseCurrency: "USD", timeZone: "Ameri
 const seedState = {
   selectedSymbol: null, selectedTaskId: null, selectedSnapshotId: null,
   taskFilter: "all", newsFilter: "all", alertFilter: "active",
-  chartMode: "asset", chartRange: "1m", chartStyle: "area",
+  chartMode: "asset", chartRange: "1m", chartStyle: "area", overviewRange: "90d",
   apiKey: "", assets: [], trades: [], tasks: [], news: [], snapshots: [], priceHistory: {},
   profile: { ...DEFAULT_PROFILE }, demoCleanupVersion: DEMO_CLEANUP_VERSION
 };
@@ -34,7 +34,7 @@ function loadState() { const stored = localStorage.getItem(STORE_KEY); if (!stor
 
 function migrateState(nextState) {
   nextState.priceHistory ||= {};
-  nextState.chartMode ||= "asset"; nextState.chartRange ||= "1m"; nextState.chartStyle ||= "area"; nextState.newsFilter ||= "all";
+  nextState.chartMode ||= "asset"; nextState.chartRange ||= "1m"; nextState.chartStyle ||= "area"; nextState.newsFilter ||= "all"; nextState.overviewRange ||= "90d";
   nextState.alertFilter ||= "active";
   delete nextState.ideas;
   delete nextState.selectedIdeaId;
@@ -326,6 +326,129 @@ function renderAllocation(port) {
   }
 }
 
+
+// =========================
+// Overview performance chart (TradingView Lightweight Charts)
+// =========================
+const overviewChartState = { instance: null, series: null, resizeObserver: null, lastKey: null };
+
+function destroyOverviewChart() {
+  if (overviewChartState.resizeObserver) {
+    try { overviewChartState.resizeObserver.disconnect(); } catch {}
+    overviewChartState.resizeObserver = null;
+  }
+  if (overviewChartState.instance) {
+    try { overviewChartState.instance.remove(); } catch {}
+    overviewChartState.instance = null;
+    overviewChartState.series = null;
+  }
+}
+
+function filterSnapshotsByRange(snaps, range) {
+  if (!snaps || !snaps.length) return [];
+  const sorted = snaps.slice().sort((a, b) => String(a.date).localeCompare(String(b.date)));
+  if (range === "all") return sorted;
+  const today = new Date();
+  let from;
+  if (range === "7d")        { from = new Date(today); from.setDate(from.getDate() - 7); }
+  else if (range === "30d")  { from = new Date(today); from.setDate(from.getDate() - 30); }
+  else if (range === "ytd")  { from = new Date(today.getFullYear(), 0, 1); }
+  else                        { from = new Date(today); from.setDate(from.getDate() - 90); }
+  const cutoff = from.toISOString().slice(0, 10);
+  return sorted.filter(s => String(s.date) >= cutoff);
+}
+
+function renderOverviewPerformance(port) {
+  const container = document.getElementById("overviewPerfChart");
+  const empty = document.getElementById("overviewPerfEmpty");
+  const summary = document.getElementById("overviewPerfSummary");
+  if (!container) return;
+
+  document.querySelectorAll("[data-overview-range]").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.overviewRange === (state.overviewRange || "90d"));
+  });
+
+  const snaps = (snapshotsCache && snapshotsCache.length ? snapshotsCache : state.snapshots || []);
+  const filtered = filterSnapshotsByRange(snaps, state.overviewRange || "90d");
+  // Always append today's live value as the rightmost point so the chart catches the latest movement.
+  const todayIso = todayISO();
+  const livePoint = { date: todayIso, portfolio: { value: port.value } };
+  const points = filtered
+    .filter(s => Number.isFinite(Number(s.portfolio?.value)))
+    .map(s => ({ time: Math.floor(new Date(`${s.date}T16:00:00Z`).getTime() / 1000), value: Number(s.portfolio.value) }));
+  // De-dupe by time and append today if not already present
+  const dedup = new Map();
+  for (const p of points) dedup.set(p.time, p.value);
+  const liveTime = Math.floor(new Date(`${todayIso}T16:00:00Z`).getTime() / 1000);
+  if (!dedup.has(liveTime) && Number.isFinite(port.value)) dedup.set(liveTime, port.value);
+  const series = [...dedup.entries()].map(([time, value]) => ({ time, value })).sort((a, b) => a.time - b.time);
+
+  if (series.length < 2) {
+    destroyOverviewChart();
+    container.innerHTML = "";
+    if (empty) { empty.hidden = false; empty.textContent = snaps.length ? "Not enough data in this range — pick a wider window or wait for tomorrow's snapshot." : "Snapshots will populate this chart once the daily cron has at least two rows for your account."; }
+    if (summary) summary.textContent = "";
+    return;
+  }
+  if (empty) empty.hidden = true;
+
+  const startVal = series[0].value;
+  const endVal = series[series.length - 1].value;
+  const move = endVal - startVal;
+  const movePct = startVal ? (move / startVal) * 100 : 0;
+  if (summary) {
+    summary.textContent = `${money(move)} ${pct(movePct)}`;
+    summary.classList.toggle("up", move >= 0);
+    summary.classList.toggle("dn", move < 0);
+  }
+
+  if (typeof window.LightweightCharts === "undefined") {
+    container.innerHTML = `<div style="padding:40px 16px;text-align:center;color:#6b6b7b;font-family:DM Mono,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;">Loading chart engine…</div>`;
+    setTimeout(() => renderOverviewPerformance(port), 250);
+    return;
+  }
+
+  if (!overviewChartState.instance) {
+    container.innerHTML = "";
+    const LWC = window.LightweightCharts;
+    const inst = LWC.createChart(container, {
+      layout: { background: { type: "solid", color: "transparent" }, textColor: "#9b9baa", fontFamily: "DM Mono, monospace", fontSize: 10 },
+      grid: { vertLines: { color: "rgba(40,40,47,.45)" }, horzLines: { color: "rgba(40,40,47,.45)" } },
+      rightPriceScale: { borderColor: "#1e1e25", scaleMargins: { top: 0.16, bottom: 0.08 } },
+      timeScale: { borderColor: "#1e1e25", timeVisible: false, secondsVisible: false, rightOffset: 2, barSpacing: 8 },
+      crosshair: { mode: 1, vertLine: { color: "rgba(232,213,176,.4)", width: 1, style: 2, labelBackgroundColor: "#e8d5b0" }, horzLine: { color: "rgba(232,213,176,.4)", width: 1, style: 2, labelBackgroundColor: "#e8d5b0" } },
+      handleScale: { axisPressedMouseMove: true, mouseWheel: false, pinch: true },
+      handleScroll: { mouseWheel: false, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
+      autoSize: true,
+    });
+    overviewChartState.instance = inst;
+    overviewChartState.series = inst.addAreaSeries({
+      topColor: "rgba(232,213,176,.32)",
+      bottomColor: "rgba(232,213,176,0)",
+      lineColor: "#e8d5b0",
+      lineWidth: 2,
+      priceFormat: { type: "price", precision: 0, minMove: 1 },
+      crosshairMarkerVisible: true,
+      crosshairMarkerRadius: 4,
+      crosshairMarkerBorderColor: "#e8d5b0",
+      crosshairMarkerBackgroundColor: "#0a0a0b",
+    });
+    if (typeof ResizeObserver !== "undefined") {
+      overviewChartState.resizeObserver = new ResizeObserver(entries => {
+        for (const entry of entries) {
+          if (overviewChartState.instance) overviewChartState.instance.applyOptions({ width: entry.contentRect.width, height: entry.contentRect.height });
+        }
+      });
+      overviewChartState.resizeObserver.observe(container);
+    }
+  }
+
+  try {
+    overviewChartState.series.setData(series);
+    overviewChartState.instance.timeScale().fitContent();
+  } catch (e) { console.warn("[overview-perf] setData failed", e); }
+}
+
 function renderMovers(positions) {
   // Use Number.isFinite + a permissive filter — even tiny moves are interesting,
   // and exact-zero is rare unless the asset has no previousClose set.
@@ -387,6 +510,7 @@ function renderOverview() {
   renderMovers(port.positions);
   renderHeroSparklines(port);
   renderAllocation(port);
+  renderOverviewPerformance(port);
 }
 
 function metric(label, value, sub, tone = "", sparkId = "") {
@@ -1275,6 +1399,9 @@ document.addEventListener("click", event => {
       }
     }
   }
+
+  const overviewRange = event.target.closest("[data-overview-range]")?.dataset.overviewRange;
+  if (overviewRange) { state.overviewRange = overviewRange; saveState(); renderOverviewPerformance(portfolio()); return; }
 
   const newsFilter = event.target.closest("[data-news-filter]")?.dataset.newsFilter;
   if (newsFilter) { state.newsFilter = newsFilter; render(); }
