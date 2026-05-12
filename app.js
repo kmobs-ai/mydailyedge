@@ -449,6 +449,127 @@ function renderOverviewPerformance(port) {
   } catch (e) { console.warn("[overview-perf] setData failed", e); }
 }
 
+
+// =========================
+// Position heatmap (squarified treemap)
+// =========================
+function squarifyTreemap(items, w, h) {
+  // items: [{value, ...}]. Returns parallel array of {x, y, w, h, item}.
+  const positions = new Array(items.length);
+  const total = items.reduce((s, x) => s + Math.max(0, x.value || 0), 0);
+  if (!total || w <= 0 || h <= 0) return items.map((it, i) => ({ x: 0, y: 0, w: 0, h: 0, item: it, _i: i }));
+  const scale = (w * h) / total;
+  const tiles = items.map((it, i) => ({ a: Math.max(0, it.value || 0) * scale, i, item: it })).sort((a, b) => b.a - a.a);
+
+  function worstRatio(row, side) {
+    if (!row.length || side <= 0) return Infinity;
+    const sum = row.reduce((s, t) => s + t.a, 0);
+    const max = Math.max(...row.map(t => t.a));
+    const min = Math.min(...row.map(t => t.a));
+    return Math.max((side * side * max) / (sum * sum), (sum * sum) / (side * side * min));
+  }
+
+  function commitRow(row, rect) {
+    const sum = row.reduce((s, t) => s + t.a, 0);
+    const horiz = rect.w >= rect.h;
+    const depth = sum / (horiz ? rect.h : rect.w);
+    let offset = 0;
+    for (const t of row) {
+      const len = t.a / depth;
+      if (horiz) {
+        positions[t.i] = { x: rect.x, y: rect.y + offset, w: depth, h: len, item: t.item };
+        offset += len;
+      } else {
+        positions[t.i] = { x: rect.x + offset, y: rect.y, w: len, h: depth, item: t.item };
+        offset += len;
+      }
+    }
+    return horiz
+      ? { x: rect.x + depth, y: rect.y, w: rect.w - depth, h: rect.h }
+      : { x: rect.x, y: rect.y + depth, w: rect.w, h: rect.h - depth };
+  }
+
+  let rect = { x: 0, y: 0, w, h };
+  let row = [];
+  for (const t of tiles) {
+    const side = Math.min(rect.w, rect.h);
+    const trial = [...row, t];
+    if (row.length === 0 || worstRatio(trial, side) <= worstRatio(row, side)) {
+      row.push(t);
+    } else {
+      rect = commitRow(row, rect);
+      row = [t];
+    }
+  }
+  if (row.length) commitRow(row, rect);
+  return positions;
+}
+
+function heatmapColor(pct, maxAbs) {
+  if (!Number.isFinite(pct) || maxAbs <= 0) return "rgba(40,40,47,0.6)";
+  const intensity = Math.min(1, Math.abs(pct) / maxAbs);
+  const opacity = 0.18 + intensity * 0.62; // 0.18 → 0.80
+  return pct >= 0
+    ? `rgba(103,170,125,${opacity.toFixed(3)})`
+    : `rgba(201,92,80,${opacity.toFixed(3)})`;
+}
+
+function renderHeatmap(port) {
+  const canvas = document.getElementById("overviewHeatmap");
+  if (!canvas) return;
+  const positions = (port.positions || []).filter(p => p.value > 0 && p.quantity > 0);
+  if (!positions.length) {
+    canvas.innerHTML = `<div class="heatmap-empty">No positions yet</div>`;
+    return;
+  }
+
+  // Measure available canvas. If 0 (e.g., display:none), retry after layout.
+  const rect = canvas.getBoundingClientRect();
+  const w = Math.max(0, Math.floor(rect.width));
+  const h = Math.max(0, Math.floor(rect.height));
+  if (w < 40 || h < 40) {
+    setTimeout(() => renderHeatmap(port), 80);
+    return;
+  }
+
+  const items = positions.map(p => ({
+    value: p.value,
+    symbol: p.symbol,
+    pct: Number(p.dayChangePct) || 0,
+    name: p.name || p.symbol,
+  }));
+  const tiles = squarifyTreemap(items, w, h);
+  const maxAbs = Math.max(...items.map(i => Math.abs(i.pct))) || 1;
+
+  canvas.innerHTML = tiles.map(t => {
+    if (!t || t.w < 4 || t.h < 4) return "";
+    const area = t.w * t.h;
+    const size = area > 9000 ? "size-lg" : (area > 3000 ? "size-md" : "size-sm");
+    const showPct = t.w >= 56 && t.h >= 32;
+    const showTicker = t.w >= 30 && t.h >= 18;
+    const pctLabel = `${t.item.pct >= 0 ? "+" : ""}${t.item.pct.toFixed(2)}%`;
+    return `<div class="heatmap-tile ${size}"
+                 data-select-asset="${t.item.symbol}"
+                 title="${t.item.symbol} · ${money(t.item.value)} · ${pctLabel} today"
+                 style="left:${t.x.toFixed(1)}px;top:${t.y.toFixed(1)}px;width:${t.w.toFixed(1)}px;height:${t.h.toFixed(1)}px;background:${heatmapColor(t.item.pct, maxAbs)}">
+              ${showTicker ? `<span class="heatmap-ticker">${t.item.symbol}</span>` : ""}
+              ${showPct ? `<span class="heatmap-pct">${pctLabel}</span>` : ""}
+            </div>`;
+  }).join("");
+}
+
+// Re-render on resize since the layout depends on the canvas pixel size.
+let _heatmapResizeBound = false;
+function bindHeatmapResize() {
+  if (_heatmapResizeBound) return;
+  _heatmapResizeBound = true;
+  let raf = 0;
+  window.addEventListener("resize", () => {
+    if (raf) cancelAnimationFrame(raf);
+    raf = requestAnimationFrame(() => { try { renderHeatmap(portfolio()); } catch {} });
+  });
+}
+
 function renderMovers(positions) {
   // Use Number.isFinite + a permissive filter — even tiny moves are interesting,
   // and exact-zero is rare unless the asset has no previousClose set.
@@ -511,6 +632,8 @@ function renderOverview() {
   renderHeroSparklines(port);
   renderAllocation(port);
   renderOverviewPerformance(port);
+  renderHeatmap(port);
+  bindHeatmapResize();
 }
 
 function metric(label, value, sub, tone = "", sparkId = "") {
