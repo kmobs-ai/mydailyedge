@@ -82,32 +82,61 @@ async function apiRequest(path, options = {}) {
 }
 
 function scheduleServerSave() { if (suppressSync || !auth.configured || !auth.authenticated) return; clearTimeout(syncTimer); syncTimer = setTimeout(saveServerState, 700); }
-async function saveServerState(force = false) {
-  if (!auth.configured || !auth.authenticated) return;
-  try {
-    const versionToSend = force ? "force" : serverStateVersion;
-    const result = await apiRequest("state.php", {
-      method: "PUT",
-      body: JSON.stringify({ state, version: versionToSend })
-    });
-    if (typeof result.version === "number") serverStateVersion = result.version;
-    pendingConflict = null;
-    renderConflictBanner();
-    setAuthMessage("Synced to MySQL.");
-  } catch (e) {
-    if (e.status === 409 && e.data) {
-      // Stash the conflict — frontend banner will let user resolve
-      pendingConflict = {
-        serverVersion: e.data.serverVersion ?? 0,
-        clientVersion: e.data.clientVersion ?? serverStateVersion,
-        message: e.message
-      };
+// Serial queue for state-saves. Each save waits for any in-flight save to finish
+// before reading serverStateVersion, which prevents the classic optimistic-concurrency
+// race where two saves capture the same stale version concurrently and the second
+// gets a 409. With this queue, single-tab activity never sees a 409 — the only
+// remaining 409 is a real multi-device conflict (e.g. another tab/device saved).
+let _syncQueue = Promise.resolve();
+let _consecutive409Count = 0;
+
+function saveServerState(force = false) {
+  // Defer the actual save behind any prior in-flight save in the queue.
+  const task = _syncQueue.then(async () => {
+    if (!auth.configured || !auth.authenticated) return;
+    try {
+      // versionToSend is read HERE (after the prior save finished) so it sees the
+      // most recent version returned by the server.
+      const versionToSend = force ? "force" : serverStateVersion;
+      const result = await apiRequest("state.php", {
+        method: "PUT",
+        body: JSON.stringify({ state, version: versionToSend })
+      });
+      if (typeof result.version === "number") serverStateVersion = result.version;
+      _consecutive409Count = 0;
+      pendingConflict = null;
       renderConflictBanner();
+      setAuthMessage("Synced to MySQL.");
+    } catch (e) {
+      if (e.status === 409 && e.data) {
+        // Real conflict — another tab/device pushed a newer version. First couple of
+        // times, auto-resolve by refreshing our view of the server version and
+        // retrying once with that fresh number (covers any straggler race we missed).
+        // If it keeps happening, surface the banner so the user can decide.
+        _consecutive409Count++;
+        const incomingServerVersion = e.data.serverVersion ?? 0;
+        if (_consecutive409Count <= 1 && Number.isFinite(incomingServerVersion)) {
+          console.warn(`[sync] transient 409 (server v${incomingServerVersion}, client v${e.data.clientVersion ?? "?"}). Refreshing version and retrying.`);
+          serverStateVersion = incomingServerVersion;
+          // Retry immediately — but go through the queue so we don't stack races.
+          saveServerState(false);
+          return;
+        }
+        pendingConflict = {
+          serverVersion: incomingServerVersion,
+          clientVersion: e.data.clientVersion ?? serverStateVersion,
+          message: e.message
+        };
+        renderConflictBanner();
+        setAuthMessage(e.message);
+        return;
+      }
       setAuthMessage(e.message);
-      return;
     }
-    setAuthMessage(e.message);
-  }
+  });
+  // Swallow rejections so a single error doesn't break the chain for subsequent saves.
+  _syncQueue = task.catch(() => {});
+  return task;
 }
 async function loadServerState() {
   const r = await apiRequest("state.php");
