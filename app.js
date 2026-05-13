@@ -950,6 +950,47 @@ async function loadSnapshots() {
     return;
   }
   await backfillLocalSnapshots();
+  await autoCaptureTodayIfMissing();
+}
+
+// Capture today's snapshot to the server if it doesn't already exist for this user.
+// Idempotent: the snapshots table has a UNIQUE key on (user_id, snapshot_date), so
+// the cron job (if configured) will still overwrite with EOD values later.
+let _autoCaptureRunForSession = false;
+async function autoCaptureTodayIfMissing() {
+  if (_autoCaptureRunForSession) return;
+  if (!auth.configured || !auth.authenticated) return;
+  if (!state.assets || !state.assets.length) return; // nothing to snapshot
+  const today = todayISO();
+  const have = (snapshotsCache || []).some(s => String(s.date) === today);
+  if (have) { _autoCaptureRunForSession = true; return; }
+
+  try {
+    const port = portfolio();
+    const positions = port.positions.map(p => ({ symbol: p.symbol, value: p.value, cost: p.cost, dayChangePct: p.dayChangePct, gain: p.gain }));
+    positions.sort((a, b) => b.value - a.value);
+    const openTasks = state.tasks.filter(t => !t.done);
+    const dueTasks = openTasks.filter(t => t.due && t.due <= today);
+    const report = `Auto-snapshot at app load. Portfolio ${money(port.value)} · day ${pct(port.dayPct)} · total ${money(port.gain)}. Top: ${positions.slice(0, 3).map(p => p.symbol).join(", ") || "none"}.`;
+    await apiRequest("snapshots.php", {
+      method: "POST",
+      body: JSON.stringify({
+        action: "capture",
+        date: today,
+        portfolio: { value: port.value, cost: port.cost, dayPnl: port.dayPnl, dayPct: port.dayPct, gain: port.gain, gainPct: port.gainPct },
+        positions,
+        tasks: { open: openTasks.length, due: dueTasks.length },
+        report,
+      })
+    });
+    // Re-fetch so the local cache reflects the new row
+    const r = await apiRequest("snapshots.php?limit=180");
+    snapshotsCache = Array.isArray(r.snapshots) ? r.snapshots : snapshotsCache;
+    _autoCaptureRunForSession = true;
+    console.log("[snapshots] auto-captured today's snapshot");
+  } catch (e) {
+    console.warn("[snapshots] auto-capture failed:", e.message);
+  }
 }
 
 async function backfillLocalSnapshots() {
@@ -1433,6 +1474,9 @@ async function refreshLiveData(silent = false) {
       }
       await refreshChartHistory(state.chartRange, true);
       await refreshNews();
+      // Re-capture today with the fresh quote data so the snapshot reflects latest prices
+      _autoCaptureRunForSession = false;
+      await loadSnapshots();
       render();
     } catch (e) { if (!silent) alert(e.message); render(); }
     return;

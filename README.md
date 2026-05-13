@@ -86,6 +86,20 @@ The GitHub Actions example uploads `index.html`, `styles.css`, `app.js`, and `.h
 When you want real accounts, private market-data keys, scheduled daily reports, and server-side history, add a backend. On GoDaddy Web Hosting (cPanel), PHP plus MySQL is the most natural fit because cPanel supports PHP, MySQL, cron jobs, and `mod_rewrite`. If you prefer a modern Git-first workflow, host the app on Vercel, Netlify, or Cloudflare Pages and point GoDaddy DNS for `mydailyedge.io` there.
 
 
+
+
+## Snapshot capture (automatic)
+
+The app captures today's snapshot **on app load** (and on every manual Refresh)
+if one doesn't already exist for the day. This guarantees you have a snapshot
+for every day you open the app, with no cron job required.
+
+The `api/cron/daily-snapshot.php` job remains a fallback for days you don't
+open the app at all. Both paths upsert into the same `snapshots` table on a
+unique (user_id, snapshot_date) key, so duplicate captures simply overwrite
+with the most recent data (the cron's 22:00 UTC run gives you post-market-
+close prices; an in-app capture during the day gives you intra-day prices).
+
 ## Price alerts cron setup
 
 The alerts evaluator runs as a cron job. In cPanel:
