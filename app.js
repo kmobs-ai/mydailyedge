@@ -209,25 +209,91 @@ function renderTopState() {
 /**
  * Render a small inline sparkline into an SVG element.
  * @param {SVGElement} svg     the <svg> node to populate
- * @param {Array<number>} data ordered oldest-to-newest values
+ * @param {Array<number|{value,label,date}>} data ordered oldest-to-newest values
  * @param {string} color       stroke color (also used for fill at low opacity)
+ * @param {Object} opts        { format?: fn for tooltip value }
  */
-function renderSparkline(svg, data, color) {
+function renderSparkline(svg, data, color, opts = {}) {
   if (!svg) return;
-  const points = (data || []).filter(v => Number.isFinite(v));
-  if (points.length < 2) { svg.innerHTML = ""; return; }
+  const raw = (data || []).map(d => (typeof d === "object" && d !== null) ? d : { value: d });
+  const points = raw.filter(d => Number.isFinite(d.value));
+  if (points.length < 2) { svg.innerHTML = ""; svg.removeAttribute("data-spark"); return; }
   const w = 100, h = 28;
-  const min = Math.min(...points), max = Math.max(...points);
+  const values = points.map(p => p.value);
+  const min = Math.min(...values), max = Math.max(...values);
   const range = max - min || 1;
   const stepX = w / (points.length - 1);
-  const coords = points.map((v, i) => [i * stepX, h - 2 - ((v - min) / range) * (h - 4)]);
-  const line = coords.map(([x, y], i) => (i === 0 ? `M${x.toFixed(1)},${y.toFixed(1)}` : `L${x.toFixed(1)},${y.toFixed(1)}`)).join("");
+  const coords = points.map((p, i) => [i * stepX, h - 2 - ((p.value - min) / range) * (h - 4)]);
+  const line = coords.map(([x, y], i) => (i === 0 ? `M${x.toFixed(2)},${y.toFixed(2)}` : `L${x.toFixed(2)},${y.toFixed(2)}`)).join("");
   const area = `${line} L${w},${h} L0,${h} Z`;
   svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
   svg.setAttribute("preserveAspectRatio", "none");
   svg.innerHTML = `
     <path d="${area}" fill="${color}" opacity="0.18"></path>
-    <path d="${line}" fill="none" stroke="${color}" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"></path>`;
+    <path d="${line}" fill="none" stroke="${color}" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"></path>
+    <circle class="spark-hover-marker" cx="0" cy="0" r="0" style="display:none"></circle>`;
+  // Stash data + colors so the tooltip handler can reconstruct values per cursor position
+  svg.__sparkData = points;
+  svg.__sparkColor = color;
+  svg.__sparkFormat = opts.format || (v => Number(v || 0).toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }));
+  if (!svg.__sparkBound) {
+    svg.addEventListener("mousemove", handleSparkHover);
+    svg.addEventListener("mouseleave", hideSparkTooltip);
+    svg.addEventListener("touchstart", handleSparkHover, { passive: true });
+    svg.addEventListener("touchmove", handleSparkHover, { passive: true });
+    svg.addEventListener("touchend", hideSparkTooltip);
+    svg.__sparkBound = true;
+  }
+}
+
+let _sparkTooltipEl = null;
+function ensureSparkTooltip() {
+  if (_sparkTooltipEl) return _sparkTooltipEl;
+  const tip = document.createElement("div");
+  tip.className = "spark-tooltip";
+  tip.innerHTML = `<div class="spark-tooltip-date"></div><div class="spark-tooltip-value"></div>`;
+  document.body.appendChild(tip);
+  _sparkTooltipEl = tip;
+  return tip;
+}
+function handleSparkHover(event) {
+  const svg = event.currentTarget;
+  const data = svg.__sparkData;
+  if (!data || data.length < 2) return;
+  const rect = svg.getBoundingClientRect();
+  const ev = event.touches && event.touches[0] ? event.touches[0] : event;
+  const xRatio = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width));
+  const idx = Math.round(xRatio * (data.length - 1));
+  const point = data[idx];
+  if (!point) return;
+  const tip = ensureSparkTooltip();
+  const formatFn = svg.__sparkFormat || (v => v);
+  tip.querySelector(".spark-tooltip-date").textContent = point.label || point.date || "";
+  tip.querySelector(".spark-tooltip-value").textContent = formatFn(point.value);
+  // Position the tip just above the cursor
+  tip.style.left = `${ev.clientX}px`;
+  tip.style.top = `${rect.top - 4}px`;
+  tip.classList.add("visible");
+
+  // Marker dot follows the hovered data point
+  const marker = svg.querySelector(".spark-hover-marker");
+  if (marker) {
+    const w = 100, h = 28;
+    const values = data.map(p => p.value);
+    const min = Math.min(...values), max = Math.max(...values);
+    const range = max - min || 1;
+    const cx = idx * (w / (data.length - 1));
+    const cy = h - 2 - ((point.value - min) / range) * (h - 4);
+    marker.setAttribute("cx", cx.toFixed(2));
+    marker.setAttribute("cy", cy.toFixed(2));
+    marker.setAttribute("r", "2.2");
+    marker.style.display = "";
+  }
+}
+function hideSparkTooltip(event) {
+  if (_sparkTooltipEl) _sparkTooltipEl.classList.remove("visible");
+  const marker = event && event.currentTarget && event.currentTarget.querySelector && event.currentTarget.querySelector(".spark-hover-marker");
+  if (marker) marker.style.display = "none";
 }
 
 /**
@@ -248,28 +314,41 @@ function renderDonut(container, segments, opts = {}) {
     return;
   }
   const C = 2 * Math.PI * r;
-  let offset = 0;
-  const arcs = segments.map(seg => {
+  const arcs = [];
+  let cumulative = 0;
+  for (const seg of segments) {
     const v = Math.max(0, Number(seg.value) || 0);
     const len = (v / total) * C;
-    const dash = `${len.toFixed(2)} ${(C - len).toFixed(2)}`;
-    const circle = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${seg.color}" stroke-width="${thickness}" stroke-dasharray="${dash}" stroke-dashoffset="${(-offset).toFixed(2)}" transform="rotate(-90 ${cx} ${cy})"/>`;
-    offset += len;
-    return circle;
-  }).join("");
+    arcs.push({ color: seg.color, len, offset: cumulative });
+    cumulative += len;
+  }
   const centerLabelHTML = opts.centerLabel ? `<text x="${cx}" y="${cy - 2}" text-anchor="middle" class="donut-center">${opts.centerLabel}</text>` : "";
   const centerSubHTML = opts.centerSub ? `<text x="${cx}" y="${cy + 12}" text-anchor="middle" class="donut-center-sub">${opts.centerSub}</text>` : "";
-  container.innerHTML = `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" class="donut-svg">${arcs}${centerLabelHTML}${centerSubHTML}</svg>`;
+
+  // Render with each arc starting at zero length; then in the next frame set the real lengths so
+  // the CSS transition on stroke-dasharray animates the sweep in.
+  container.innerHTML = `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" class="donut-svg">
+    ${arcs.map(a => `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${a.color}" stroke-width="${thickness}" stroke-dasharray="0 ${C.toFixed(2)}" stroke-dashoffset="${(-a.offset).toFixed(2)}" transform="rotate(-90 ${cx} ${cy})"/>`).join("")}
+    ${centerLabelHTML}${centerSubHTML}
+  </svg>`;
+  requestAnimationFrame(() => {
+    const circles = container.querySelectorAll("svg.donut-svg circle");
+    arcs.forEach((a, i) => {
+      const c = circles[i];
+      if (c) c.setAttribute("stroke-dasharray", `${a.len.toFixed(2)} ${(C - a.len).toFixed(2)}`);
+    });
+  });
 }
 
 function renderHeroSparklines(port) {
   // Pull series from server-side snapshotsCache. Ordered oldest → newest.
   const snaps = (snapshotsCache && snapshotsCache.length ? snapshotsCache : state.snapshots || []).slice().sort((a, b) => String(a.date).localeCompare(String(b.date)));
-  const valueSeries = snaps.map(s => Number(s.portfolio?.value || 0));
-  const gainSeries  = snaps.map(s => Number(s.portfolio?.gain || 0));
-  const dayPnlSeries = snaps.map(s => Number(s.portfolio?.dayPnl || 0));
+  const today = todayISO();
+  const valueSeries  = snaps.map(s => ({ date: s.date, value: Number(s.portfolio?.value || 0) }));
+  const gainSeries   = snaps.map(s => ({ date: s.date, value: Number(s.portfolio?.gain || 0) }));
   // Always include today's live values as the last point so the spark visually catches the latest move.
-  valueSeries.push(port.value); gainSeries.push(port.gain); dayPnlSeries.push(port.dayPnl);
+  valueSeries.push({ date: today, value: port.value });
+  gainSeries.push({ date: today, value: port.gain });
 
   const accent = "#e8d5b0";
   const upGreen = "#67aa7d";
@@ -623,25 +702,50 @@ function renderHeatmap(port) {
   if (!canvas) return;
   const positions = (port.positions || []).filter(p => p.value > 0 && p.quantity > 0);
   if (!positions.length) {
+    canvas.classList.remove("heatmap-list");
     canvas.innerHTML = `<div class="heatmap-empty">No positions yet</div>`;
     return;
   }
 
-  // Measure available canvas. If 0 (e.g., display:none), retry after layout.
+  // Roll everything below the top N into a single "Other +X" tile for legibility.
+  const TOP_N = 8;
+  const sorted = positions.slice().sort((a, b) => b.value - a.value);
+  const top = sorted.slice(0, TOP_N);
+  const overflow = sorted.slice(TOP_N);
+  let items = top.map(p => ({ value: p.value, symbol: p.symbol, pct: Number(p.dayChangePct) || 0, name: p.name || p.symbol }));
+  if (overflow.length) {
+    const otherValue = overflow.reduce((s, p) => s + p.value, 0);
+    // Value-weighted average % change for the "Other" bucket
+    const weightedPct = overflow.reduce((s, p) => s + (Number(p.dayChangePct) || 0) * p.value, 0) / (otherValue || 1);
+    items.push({ value: otherValue, symbol: `Other +${overflow.length}`, pct: weightedPct, name: `${overflow.length} smaller positions` });
+  }
+
+  // Mobile: render as a vertical list of horizontal bars instead of a treemap.
+  if (window.innerWidth <= 780) {
+    canvas.classList.add("heatmap-list");
+    const maxAbs = Math.max(...items.map(i => Math.abs(i.pct))) || 1;
+    canvas.innerHTML = items.map(it => {
+      const tone = it.pct >= 0 ? "up" : "dn";
+      const fill = Math.max(2, Math.min(50, (Math.abs(it.pct) / maxAbs) * 50));
+      const pctLabel = `${it.pct >= 0 ? "+" : ""}${it.pct.toFixed(2)}%`;
+      return `<div class="heatmap-tile size-sm" data-select-asset="${it.symbol.startsWith("Other") ? "" : it.symbol}" title="${it.symbol} · ${money(it.value)} · ${pctLabel} today">
+        <span class="heatmap-ticker">${it.symbol}</span>
+        <span class="heatmap-bar-track">
+          <span class="heatmap-bar-fill" style="width:${fill.toFixed(1)}%;background:${heatmapColor(it.pct, maxAbs)}"></span>
+        </span>
+        <span class="heatmap-pct ${tone}">${pctLabel}</span>
+      </div>`;
+    }).join("");
+    return;
+  }
+  canvas.classList.remove("heatmap-list");
+
+  // Desktop: squarified treemap
   const rect = canvas.getBoundingClientRect();
   const w = Math.max(0, Math.floor(rect.width));
   const h = Math.max(0, Math.floor(rect.height));
-  if (w < 40 || h < 40) {
-    setTimeout(() => renderHeatmap(port), 80);
-    return;
-  }
+  if (w < 40 || h < 40) { setTimeout(() => renderHeatmap(port), 80); return; }
 
-  const items = positions.map(p => ({
-    value: p.value,
-    symbol: p.symbol,
-    pct: Number(p.dayChangePct) || 0,
-    name: p.name || p.symbol,
-  }));
   const tiles = squarifyTreemap(items, w, h);
   const maxAbs = Math.max(...items.map(i => Math.abs(i.pct))) || 1;
 
@@ -652,8 +756,9 @@ function renderHeatmap(port) {
     const showPct = t.w >= 56 && t.h >= 32;
     const showTicker = t.w >= 30 && t.h >= 18;
     const pctLabel = `${t.item.pct >= 0 ? "+" : ""}${t.item.pct.toFixed(2)}%`;
+    const isOther = t.item.symbol.startsWith("Other");
     return `<div class="heatmap-tile ${size}"
-                 data-select-asset="${t.item.symbol}"
+                 ${isOther ? "" : `data-select-asset="${t.item.symbol}"`}
                  title="${t.item.symbol} · ${money(t.item.value)} · ${pctLabel} today"
                  style="left:${t.x.toFixed(1)}px;top:${t.y.toFixed(1)}px;width:${t.w.toFixed(1)}px;height:${t.h.toFixed(1)}px;background:${heatmapColor(t.item.pct, maxAbs)}">
               ${showTicker ? `<span class="heatmap-ticker">${t.item.symbol}</span>` : ""}
@@ -664,6 +769,31 @@ function renderHeatmap(port) {
 
 // Re-render on resize since the layout depends on the canvas pixel size.
 let _heatmapResizeBound = false;
+
+function exportOverviewPerfChart() {
+  if (!overviewChartState.instance) {
+    alert("Chart isn't ready yet. Wait a moment and try again.");
+    return;
+  }
+  try {
+    const canvas = overviewChartState.instance.takeScreenshot();
+    canvas.toBlob(blob => {
+      if (!blob) { alert("Couldn't generate the image."); return; }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `mydailyedge-performance-${todayISO()}.png`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }, "image/png");
+  } catch (e) {
+    console.warn("[export] failed", e);
+    alert(`Couldn't export the chart: ${e.message}`);
+  }
+}
+
 function bindHeatmapResize() {
   if (_heatmapResizeBound) return;
   _heatmapResizeBound = true;
@@ -1704,6 +1834,7 @@ document.addEventListener("click", event => {
   const snapId = event.target.closest("[data-select-snapshot]")?.dataset.selectSnapshot;
   if (snapId) { state.selectedSnapshotId = snapId; render(); }
   if (event.target.closest("#portfolioRefreshBtn")) refreshLiveData();
+  if (event.target.closest("#overviewPerfExportBtn")) { event.preventDefault(); exportOverviewPerfChart(); }
   if (event.target.closest("#tradeLookupBtn")) { event.preventDefault(); lookupTradeAsset(); }
 });
 

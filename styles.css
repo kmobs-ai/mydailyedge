@@ -1006,3 +1006,72 @@ textarea { resize: vertical; min-height: 78px; }
   .overview-perf-controls { width: 100%; gap: 10px; }
   .overview-perf-summary-row { margin-left: 0; padding-left: 0; border-left: 0; }
 }
+
+
+/* Sparkline hover tooltip */
+.metric { cursor: default; }
+.metric-spark { cursor: crosshair; }
+.spark-tooltip {
+  position: fixed;
+  z-index: 60;
+  pointer-events: none;
+  background: rgba(17,17,20,.96);
+  border: 1px solid var(--line2);
+  border-radius: 4px;
+  padding: 6px 9px;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--bright);
+  line-height: 1.4;
+  white-space: nowrap;
+  transform: translate(-50%, -110%);
+  opacity: 0;
+  transition: opacity .12s;
+  box-shadow: 0 6px 14px rgba(0,0,0,.4);
+}
+.spark-tooltip.visible { opacity: 1; }
+.spark-tooltip .spark-tooltip-date { color: var(--muted); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; margin-bottom: 2px; }
+.spark-tooltip .spark-tooltip-value { color: var(--bright); font-size: 11px; }
+.spark-hover-marker {
+  fill: var(--accent);
+  stroke: var(--ink);
+  stroke-width: 1;
+}
+
+/* Donut transitions */
+.donut-svg circle { transition: stroke-dasharray .55s cubic-bezier(.4,.0,.2,1), stroke-dashoffset .55s cubic-bezier(.4,.0,.2,1); }
+
+/* Performance chart export button */
+.overview-perf-export { color: var(--muted); }
+.overview-perf-export:hover { color: var(--accent); border-color: var(--dim); }
+
+/* Heatmap mobile fallback — when canvas is narrow, prefer a vertical list of horizontal bars */
+@media (max-width: 780px) {
+  .heatmap-canvas.heatmap-list { height: auto; padding: 8px; display: flex; flex-direction: column; gap: 4px; background: transparent; }
+  .heatmap-canvas.heatmap-list .heatmap-tile {
+    position: relative;
+    left: 0; top: 0;
+    width: 100% !important;
+    height: 32px !important;
+    display: grid;
+    grid-template-columns: 60px 1fr 60px;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 10px;
+    background: transparent !important;
+    border: 0;
+  }
+  .heatmap-canvas.heatmap-list .heatmap-tile:hover { transform: none; }
+  .heatmap-canvas.heatmap-list .heatmap-tile .heatmap-bar-track {
+    position: relative;
+    height: 6px;
+    background: var(--line2);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .heatmap-canvas.heatmap-list .heatmap-tile .heatmap-bar-fill {
+    position: absolute;
+    top: 0; bottom: 0; left: 0;
+    border-radius: 999px;
+  }
+}
