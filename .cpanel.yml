@@ -28,6 +28,7 @@ deployment:
     - /bin/cp -f api/web-push.php ${DEPLOYPATH}api/
     - /bin/cp -f api/push-subscribe.php ${DEPLOYPATH}api/
     - /bin/cp -f api/snapshots.php ${DEPLOYPATH}api/
+    - /bin/cp -f api/benchmarks.php ${DEPLOYPATH}api/
     - /bin/cp -f api/invitations.php ${DEPLOYPATH}api/
     - /bin/cp -f api/.htaccess ${DEPLOYPATH}api/
     - /bin/cp -n api/config.sample.php ${DEPLOYPATH}api/config.sample.php

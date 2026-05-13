@@ -105,3 +105,11 @@ CREATE TABLE IF NOT EXISTS invitations (
   CONSTRAINT invitations_accepted_user_foreign
     FOREIGN KEY (accepted_user_id) REFERENCES users (id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS benchmarks (
+  symbol VARCHAR(20) NOT NULL,
+  snapshot_date DATE NOT NULL,
+  close DECIMAL(20,8) NOT NULL,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (symbol, snapshot_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

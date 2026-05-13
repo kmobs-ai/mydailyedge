@@ -79,12 +79,18 @@
               <span class="sec-label">Portfolio over time</span>
               <span class="overview-perf-summary" id="overviewPerfSummary"></span>
             </div>
-            <div class="range-tabs" id="overviewRangeTabs">
-              <button class="range-tab" data-overview-range="7d">7D</button>
-              <button class="range-tab" data-overview-range="30d">30D</button>
-              <button class="range-tab active" data-overview-range="90d">90D</button>
-              <button class="range-tab" data-overview-range="ytd">YTD</button>
-              <button class="range-tab" data-overview-range="all">ALL</button>
+            <div class="overview-perf-controls">
+              <div class="range-tabs benchmark-tabs" id="overviewBenchmarkTabs">
+                <button class="range-tab" data-benchmark="SPY" title="Compare against SPY (S&amp;P 500 ETF)"><span class="benchmark-dot" style="background:#6c9dcc"></span>SPY</button>
+                <button class="range-tab" data-benchmark="BTC" title="Compare against Bitcoin"><span class="benchmark-dot" style="background:#e8d5b0"></span>BTC</button>
+              </div>
+              <div class="range-tabs" id="overviewRangeTabs">
+                <button class="range-tab" data-overview-range="7d">7D</button>
+                <button class="range-tab" data-overview-range="30d">30D</button>
+                <button class="range-tab active" data-overview-range="90d">90D</button>
+                <button class="range-tab" data-overview-range="ytd">YTD</button>
+                <button class="range-tab" data-overview-range="all">ALL</button>
+              </div>
             </div>
           </div>
           <div class="overview-perf-canvas" id="overviewPerfChart"></div>

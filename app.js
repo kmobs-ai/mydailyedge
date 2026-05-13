@@ -16,7 +16,7 @@ const DEFAULT_PROFILE = { displayName: "", baseCurrency: "USD", timeZone: "Ameri
 const seedState = {
   selectedSymbol: null, selectedTaskId: null, selectedSnapshotId: null,
   taskFilter: "all", newsFilter: "all", alertFilter: "active",
-  chartMode: "asset", chartRange: "1m", chartStyle: "area", overviewRange: "90d",
+  chartMode: "asset", chartRange: "1m", chartStyle: "area", overviewRange: "90d", overviewBenchmarks: [],
   apiKey: "", assets: [], trades: [], tasks: [], news: [], snapshots: [], priceHistory: {},
   profile: { ...DEFAULT_PROFILE }, demoCleanupVersion: DEMO_CLEANUP_VERSION
 };
@@ -35,6 +35,7 @@ function loadState() { const stored = localStorage.getItem(STORE_KEY); if (!stor
 function migrateState(nextState) {
   nextState.priceHistory ||= {};
   nextState.chartMode ||= "asset"; nextState.chartRange ||= "1m"; nextState.chartStyle ||= "area"; nextState.newsFilter ||= "all"; nextState.overviewRange ||= "90d";
+  if (!Array.isArray(nextState.overviewBenchmarks)) nextState.overviewBenchmarks = [];
   nextState.alertFilter ||= "active";
   delete nextState.ideas;
   delete nextState.selectedIdeaId;
@@ -327,10 +328,31 @@ function renderAllocation(port) {
 }
 
 
+
+// Benchmark price series (SPY, BTC) — lazy-fetched from server, cached client-side per range.
+const benchmarkCache = {}; // { "90d|SPY,BTC": { SPY: [...], BTC: [...] } }
+async function loadBenchmarks(range, symbols) {
+  if (!auth.configured || !auth.authenticated) return {};
+  if (!symbols || !symbols.length) return {};
+  const sortedSyms = symbols.slice().sort().join(",");
+  const key = `${range}|${sortedSyms}`;
+  if (benchmarkCache[key]) return benchmarkCache[key];
+  try {
+    const r = await apiRequest(`benchmarks.php?range=${encodeURIComponent(range)}&symbols=${encodeURIComponent(sortedSyms)}`);
+    benchmarkCache[key] = r.series || {};
+    return benchmarkCache[key];
+  } catch (e) {
+    console.warn("[benchmarks] fetch failed:", e.message);
+    return {};
+  }
+}
+
+const BENCHMARK_COLORS = { SPY: "#6c9dcc", BTC: "#e8d5b0", ETH: "#9c82ce" };
+
 // =========================
 // Overview performance chart (TradingView Lightweight Charts)
 // =========================
-const overviewChartState = { instance: null, series: null, resizeObserver: null, lastKey: null };
+const overviewChartState = { instance: null, series: null, benchmarkSeries: {}, resizeObserver: null, lastKey: null };
 
 function destroyOverviewChart() {
   if (overviewChartState.resizeObserver) {
@@ -341,6 +363,7 @@ function destroyOverviewChart() {
     try { overviewChartState.instance.remove(); } catch {}
     overviewChartState.instance = null;
     overviewChartState.series = null;
+    overviewChartState.benchmarkSeries = {};
   }
 }
 
@@ -358,7 +381,7 @@ function filterSnapshotsByRange(snaps, range) {
   return sorted.filter(s => String(s.date) >= cutoff);
 }
 
-function renderOverviewPerformance(port) {
+async function renderOverviewPerformance(port) {
   const container = document.getElementById("overviewPerfChart");
   const empty = document.getElementById("overviewPerfEmpty");
   const summary = document.getElementById("overviewPerfSummary");
@@ -367,27 +390,29 @@ function renderOverviewPerformance(port) {
   document.querySelectorAll("[data-overview-range]").forEach(btn => {
     btn.classList.toggle("active", btn.dataset.overviewRange === (state.overviewRange || "90d"));
   });
+  const activeBenchmarks = (state.overviewBenchmarks || []).slice();
+  document.querySelectorAll("[data-benchmark]").forEach(btn => {
+    btn.classList.toggle("active", activeBenchmarks.includes(btn.dataset.benchmark));
+  });
+  const normalize = activeBenchmarks.length > 0;
 
   const snaps = (snapshotsCache && snapshotsCache.length ? snapshotsCache : state.snapshots || []);
   const filtered = filterSnapshotsByRange(snaps, state.overviewRange || "90d");
-  // Always append today's live value as the rightmost point so the chart catches the latest movement.
   const todayIso = todayISO();
-  const livePoint = { date: todayIso, portfolio: { value: port.value } };
-  const points = filtered
+  const portPoints = filtered
     .filter(s => Number.isFinite(Number(s.portfolio?.value)))
     .map(s => ({ time: Math.floor(new Date(`${s.date}T16:00:00Z`).getTime() / 1000), value: Number(s.portfolio.value) }));
-  // De-dupe by time and append today if not already present
   const dedup = new Map();
-  for (const p of points) dedup.set(p.time, p.value);
+  for (const p of portPoints) dedup.set(p.time, p.value);
   const liveTime = Math.floor(new Date(`${todayIso}T16:00:00Z`).getTime() / 1000);
   if (!dedup.has(liveTime) && Number.isFinite(port.value)) dedup.set(liveTime, port.value);
-  const series = [...dedup.entries()].map(([time, value]) => ({ time, value })).sort((a, b) => a.time - b.time);
+  let series = [...dedup.entries()].map(([time, value]) => ({ time, value })).sort((a, b) => a.time - b.time);
 
   if (series.length < 2) {
     destroyOverviewChart();
     container.innerHTML = "";
-    if (empty) { empty.hidden = false; empty.textContent = snaps.length ? "Not enough data in this range — pick a wider window or wait for tomorrow's snapshot." : "Snapshots will populate this chart once the daily cron has at least two rows for your account."; }
-    if (summary) summary.textContent = "";
+    if (empty) { empty.hidden = false; empty.textContent = snaps.length ? "Not enough data in this range — pick a wider window or wait for tomorrow's snapshot." : "Snapshots will populate this chart once you've used the app for at least two distinct days."; }
+    if (summary) summary.innerHTML = "";
     return;
   }
   if (empty) empty.hidden = true;
@@ -396,16 +421,42 @@ function renderOverviewPerformance(port) {
   const endVal = series[series.length - 1].value;
   const move = endVal - startVal;
   const movePct = startVal ? (move / startVal) * 100 : 0;
+
+  // Fetch benchmark series if needed
+  let benchmarkSeries = {};
+  if (activeBenchmarks.length) {
+    benchmarkSeries = await loadBenchmarks(state.overviewRange || "90d", activeBenchmarks);
+  }
+
+  // Build summary header — show portfolio + each active benchmark's % move
+  const summaryParts = [`<span class="perf-stat ${move >= 0 ? "up" : "dn"}"><strong>${money(move)} ${pct(movePct)}</strong></span>`];
+  const benchPctForSummary = {};
+  for (const sym of activeBenchmarks) {
+    const data = benchmarkSeries[sym] || [];
+    if (data.length < 2) continue;
+    const startB = data[0].close;
+    const endB = data[data.length - 1].close;
+    if (!startB) continue;
+    const pctB = ((endB - startB) / startB) * 100;
+    benchPctForSummary[sym] = pctB;
+    summaryParts.push(`<span class="perf-stat ${pctB >= 0 ? "up" : "dn"}">${sym} <strong>${pct(pctB)}</strong></span>`);
+  }
   if (summary) {
-    summary.textContent = `${money(move)} ${pct(movePct)}`;
-    summary.classList.toggle("up", move >= 0);
-    summary.classList.toggle("dn", move < 0);
+    summary.classList.remove("up", "dn");
+    summary.innerHTML = `<span class="overview-perf-summary-row">${summaryParts.join("")}</span>`;
   }
 
   if (typeof window.LightweightCharts === "undefined") {
     container.innerHTML = `<div style="padding:40px 16px;text-align:center;color:#6b6b7b;font-family:DM Mono,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;">Loading chart engine…</div>`;
     setTimeout(() => renderOverviewPerformance(port), 250);
     return;
+  }
+
+  // The chart's measurement unit changes when normalizing — fully rebuild if mode flipped.
+  const mode = normalize ? "norm" : "dollars";
+  if (overviewChartState.lastKey !== mode) {
+    destroyOverviewChart();
+    overviewChartState.lastKey = mode;
   }
 
   if (!overviewChartState.instance) {
@@ -422,17 +473,26 @@ function renderOverviewPerformance(port) {
       autoSize: true,
     });
     overviewChartState.instance = inst;
-    overviewChartState.series = inst.addAreaSeries({
-      topColor: "rgba(232,213,176,.32)",
-      bottomColor: "rgba(232,213,176,0)",
-      lineColor: "#e8d5b0",
-      lineWidth: 2,
-      priceFormat: { type: "price", precision: 0, minMove: 1 },
-      crosshairMarkerVisible: true,
-      crosshairMarkerRadius: 4,
-      crosshairMarkerBorderColor: "#e8d5b0",
-      crosshairMarkerBackgroundColor: "#0a0a0b",
-    });
+    if (normalize) {
+      overviewChartState.series = inst.addLineSeries({
+        color: "#e8d5b0",
+        lineWidth: 2,
+        priceFormat: { type: "price", precision: 2, minMove: 0.01 },
+        crosshairMarkerVisible: true,
+        crosshairMarkerRadius: 4,
+      });
+    } else {
+      overviewChartState.series = inst.addAreaSeries({
+        topColor: "rgba(232,213,176,.32)",
+        bottomColor: "rgba(232,213,176,0)",
+        lineColor: "#e8d5b0",
+        lineWidth: 2,
+        priceFormat: { type: "price", precision: 0, minMove: 1 },
+        crosshairMarkerVisible: true,
+        crosshairMarkerRadius: 4,
+      });
+    }
+    overviewChartState.benchmarkSeries = {};
     if (typeof ResizeObserver !== "undefined") {
       overviewChartState.resizeObserver = new ResizeObserver(entries => {
         for (const entry of entries) {
@@ -443,10 +503,54 @@ function renderOverviewPerformance(port) {
     }
   }
 
+  // Update portfolio series (normalized or absolute)
   try {
-    overviewChartState.series.setData(series);
+    let data = series;
+    if (normalize) {
+      const base = series[0].value || 1;
+      data = series.map(p => ({ time: p.time, value: +(100 * p.value / base).toFixed(3) }));
+    }
+    overviewChartState.series.setData(data);
+
+    // Remove benchmark series that are no longer active
+    for (const sym of Object.keys(overviewChartState.benchmarkSeries)) {
+      if (!activeBenchmarks.includes(sym)) {
+        try { overviewChartState.instance.removeSeries(overviewChartState.benchmarkSeries[sym]); } catch {}
+        delete overviewChartState.benchmarkSeries[sym];
+      }
+    }
+
+    // Add / update benchmark series. Each is a dashed line in its color.
+    for (const sym of activeBenchmarks) {
+      const raw = benchmarkSeries[sym] || [];
+      if (raw.length < 2) continue;
+      // Clamp benchmark dates to the portfolio window so they line up visually
+      const portStart = series[0].time;
+      const portEnd = series[series.length - 1].time;
+      const points = raw
+        .map(r => ({ time: Math.floor(new Date(`${r.date}T16:00:00Z`).getTime() / 1000), value: r.close }))
+        .filter(p => p.time >= portStart - 86400 && p.time <= portEnd + 86400);
+      if (points.length < 2) continue;
+      const base = points[0].value || 1;
+      const normData = points.map(p => ({ time: p.time, value: +(100 * p.value / base).toFixed(3) }));
+
+      if (!overviewChartState.benchmarkSeries[sym]) {
+        overviewChartState.benchmarkSeries[sym] = overviewChartState.instance.addLineSeries({
+          color: BENCHMARK_COLORS[sym] || "#6c9dcc",
+          lineWidth: 1.5,
+          lineStyle: 2,  // dashed
+          lastValueVisible: false,
+          priceLineVisible: false,
+          crosshairMarkerVisible: false,
+        });
+      }
+      overviewChartState.benchmarkSeries[sym].setData(normData);
+    }
+
     overviewChartState.instance.timeScale().fitContent();
-  } catch (e) { console.warn("[overview-perf] setData failed", e); }
+  } catch (e) {
+    console.warn("[overview-perf] setData failed", e);
+  }
 }
 
 
@@ -1569,6 +1673,17 @@ document.addEventListener("click", event => {
 
   const overviewRange = event.target.closest("[data-overview-range]")?.dataset.overviewRange;
   if (overviewRange) { state.overviewRange = overviewRange; saveState(); renderOverviewPerformance(portfolio()); return; }
+
+  const benchmarkToggle = event.target.closest("[data-benchmark]")?.dataset.benchmark;
+  if (benchmarkToggle) {
+    const list = state.overviewBenchmarks || [];
+    const idx = list.indexOf(benchmarkToggle);
+    if (idx >= 0) list.splice(idx, 1); else list.push(benchmarkToggle);
+    state.overviewBenchmarks = list;
+    saveState();
+    renderOverviewPerformance(portfolio());
+    return;
+  }
 
   const newsFilter = event.target.closest("[data-news-filter]")?.dataset.newsFilter;
   if (newsFilter) { state.newsFilter = newsFilter; render(); }
