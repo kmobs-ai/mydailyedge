@@ -1,5 +1,41 @@
 "use strict";
 
+// =========================
+// Lightweight error reporter — POSTs uncaught exceptions to api/log.php.
+// Per-session capped at 5 reports so a single broken loop doesn't spam.
+// =========================
+const APP_VERSION = "0.3.0";
+let _errorReportCount = 0;
+function reportFrontendError(kind, message, extras = {}) {
+  if (_errorReportCount >= 5) return;
+  _errorReportCount++;
+  try {
+    const payload = JSON.stringify({
+      kind, message,
+      source: extras.source || "",
+      line: extras.line || 0,
+      col: extras.col || 0,
+      stack: extras.stack || "",
+      url: location.href,
+      userAgent: navigator.userAgent || "",
+      v: APP_VERSION,
+    });
+    if (navigator.sendBeacon) {
+      navigator.sendBeacon("api/log.php", new Blob([payload], { type: "application/json" }));
+    } else {
+      fetch("api/log.php", { method: "POST", body: payload, keepalive: true, headers: { "Content-Type": "application/json" } }).catch(() => {});
+    }
+  } catch {}
+}
+window.addEventListener("error", (e) => {
+  reportFrontendError("error", String(e.message || ""), { source: e.filename, line: e.lineno, col: e.colno, stack: e.error?.stack });
+});
+window.addEventListener("unhandledrejection", (e) => {
+  const reason = e.reason || {};
+  reportFrontendError("unhandled-rejection", reason.message || String(reason), { stack: reason.stack });
+});
+
+
 const STORE_KEY = "dailyedge.v1";
 const API_BASE = "api";
 const uid = () => Math.random().toString(36).slice(2, 10);

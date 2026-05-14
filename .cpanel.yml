@@ -29,6 +29,8 @@ deployment:
     - /bin/cp -f api/push-subscribe.php ${DEPLOYPATH}api/
     - /bin/cp -f api/snapshots.php ${DEPLOYPATH}api/
     - /bin/cp -f api/benchmarks.php ${DEPLOYPATH}api/
+    - /bin/cp -f api/log.php ${DEPLOYPATH}api/
+    - /bin/mkdir -p ${DEPLOYPATH}logs && /bin/chmod 755 ${DEPLOYPATH}logs
     - /bin/cp -f api/invitations.php ${DEPLOYPATH}api/
     - /bin/cp -f api/.htaccess ${DEPLOYPATH}api/
     - /bin/cp -n api/config.sample.php ${DEPLOYPATH}api/config.sample.php

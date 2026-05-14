@@ -12,4 +12,19 @@ DirectoryIndex index.html
   Header set X-Content-Type-Options "nosniff"
   Header set Referrer-Policy "strict-origin-when-cross-origin"
   Header set X-Frame-Options "SAMEORIGIN"
+
+  # Cache strategy: HTML/JS/CSS must revalidate every load so users get fresh code
+  # after each deploy. Browsers send If-Modified-Since / If-None-Match — server
+  # returns 304 if unchanged (cheap) or 200 with new content. Belt-and-suspenders.
+  <FilesMatch "\.(html|js|css|webmanifest)$">
+    Header set Cache-Control "no-cache, must-revalidate, max-age=0"
+  </FilesMatch>
+
+  # Static assets (icons, fonts) cache aggressively — they're versioned by filename
+  <FilesMatch "\.(png|jpg|jpeg|gif|svg|ico|woff|woff2|ttf)$">
+    Header set Cache-Control "public, max-age=86400"
+  </FilesMatch>
 </IfModule>
+
+# Make sure ETag and Last-Modified flow so revalidation works
+FileETag MTime Size
