@@ -39,4 +39,12 @@ deployment:
     - /bin/cp -n api/config.sample.php ${DEPLOYPATH}api/config.sample.php
     # Cron worker
     - /bin/mkdir -p ${DEPLOYPATH}api/cron
-    - /bin/cp -f api/cron/check-alerts.p
+    - /bin/cp -f api/cron/_cron-lib.php ${DEPLOYPATH}api/cron/
+    - /bin/cp -f api/cron/check-alerts.php ${DEPLOYPATH}api/cron/
+    - /bin/cp -f api/cron/generate-vapid.php ${DEPLOYPATH}api/cron/
+    - /bin/cp -f api/cron/daily-snapshot.php ${DEPLOYPATH}api/cron/
+    # Database backup script (guarded by database/.htaccess — never web-served)
+    - /bin/mkdir -p ${DEPLOYPATH}database
+    - /bin/cp -f database/backup.sh ${DEPLOYPATH}database/
+    - /bin/cp -f database/.htaccess ${DEPLOYPATH}database/
+    - /bin/chmod +x ${DEPLOYPATH}database/backup.sh

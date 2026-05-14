@@ -113,3 +113,16 @@ CREATE TABLE IF NOT EXISTS benchmarks (
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (symbol, snapshot_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS auth_attempts (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  ip_address VARCHAR(45) NOT NULL,
+  email VARCHAR(190) NOT NULL DEFAULT '',
+  action VARCHAR(20) NOT NULL,
+  successful TINYINT(1) NOT NULL DEFAULT 0,
+  attempted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY auth_attempts_ip_time (ip_address, successful, attempted_at),
+  KEY auth_attempts_email_time (email, successful, attempted_at),
+  KEY auth_attempts_cleanup (attempted_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

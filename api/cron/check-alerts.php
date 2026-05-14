@@ -31,6 +31,7 @@ if (!is_file($configPath)) {
 $config = require $configPath;
 require_once $root . '/email.php';
 require_once $root . '/web-push.php';
+require_once __DIR__ . '/_cron-lib.php';
 
 if (PHP_SAPI !== 'cli') {
     $expected = (string) ($config['cron_secret'] ?? '');
@@ -61,33 +62,12 @@ if (!$rows) {
     exit(0);
 }
 
-// --- Fetch quotes per unique symbol ---
+// --- Fetch quotes per unique symbol (Yahoo Finance, Alpha Vantage fallback) ---
 $symbols = array_unique(array_map(static fn($r) => strtoupper($r['symbol']), $rows));
 $quotes = [];
-$cryptoSet = ['BTC','ETH','SOL','ADA','XRP','DOGE','AVAX','LINK','LTC','BCH'];
-
 foreach ($symbols as $symbol) {
-    $yahooSymbol = in_array($symbol, $cryptoSet, true) ? $symbol . '-USD' : $symbol;
-    $url = 'https://query1.finance.yahoo.com/v8/finance/chart/' . rawurlencode($yahooSymbol) . '?range=1d&interval=1d';
-    $raw = false;
-    if (function_exists('curl_init')) {
-        $ch = curl_init($url);
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_TIMEOUT => 8,
-            CURLOPT_HTTPHEADER => ['Accept: application/json', 'User-Agent: MyDailyEdge-Cron/1.0'],
-        ]);
-        $raw = curl_exec($ch);
-        curl_close($ch);
-    } else {
-        $ctx = stream_context_create(['http' => ['timeout' => 8, 'header' => "Accept: application/json\r\nUser-Agent: MyDailyEdge-Cron/1.0\r\n"]]);
-        $raw = @file_get_contents($url, false, $ctx);
-    }
-    if ($raw === false) continue;
-    $decoded = json_decode($raw, true);
-    $price = (float) ($decoded['chart']['result'][0]['meta']['regularMarketPrice'] ?? 0);
-    if ($price > 0) $quotes[$symbol] = $price;
+    $quote = cron_fetch_quote($config, $symbol);
+    if ($quote !== null) $quotes[$symbol] = $quote['price'];
 }
 
 echo "[alerts] checking " . count($rows) . " alert(s) across " . count($quotes) . " quote(s)\n";

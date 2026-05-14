@@ -25,6 +25,8 @@ if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
 }
 
 if ($action === 'register') {
+    rate_limit_guard('register', $email);
+
     $users = user_count();
     if ($users > 0 && empty($config['allow_registration'])) {
         respond(['ok' => false, 'error' => 'Registration is closed.'], 403);
@@ -38,9 +40,11 @@ if ($action === 'register') {
     try {
         $stmt->execute([$email, password_hash($password, PASSWORD_DEFAULT)]);
     } catch (PDOException $error) {
+        rate_limit_record('register', $email, false);
         respond(['ok' => false, 'error' => 'That email is already registered.'], 409);
     }
 
+    rate_limit_record('register', $email, true);
     session_regenerate_id(true);
     unset($_SESSION['csrf_token']); // force a fresh token bound to the new session id
     $_SESSION['user_id'] = (int) db()->lastInsertId();
@@ -48,14 +52,18 @@ if ($action === 'register') {
 }
 
 if ($action === 'login') {
+    rate_limit_guard('login', $email);
+
     $stmt = db()->prepare('SELECT id, email, password_hash FROM users WHERE email = ?');
     $stmt->execute([$email]);
     $user = $stmt->fetch();
 
     if (!$user || !password_verify($password, $user['password_hash'])) {
+        rate_limit_record('login', $email, false);
         respond(['ok' => false, 'error' => 'Email or password is incorrect.'], 401);
     }
 
+    rate_limit_record('login', $email, true);
     session_regenerate_id(true);
     unset($_SESSION['csrf_token']); // force a fresh token bound to the new session id
     $_SESSION['user_id'] = (int) $user['id'];

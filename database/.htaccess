@@ -1,0 +1,3 @@
+# The database/ folder ships schema.sql, migrations, and backup.sh. None of it
+# should ever be reachable over HTTP — deny the whole directory.
+Require all denied

@@ -29,6 +29,7 @@ if (!is_file($configPath)) {
     fwrite(STDERR, "[snapshot] api/config.php missing\n"); exit(1);
 }
 $config = require $configPath;
+require_once __DIR__ . '/_cron-lib.php';
 
 if (PHP_SAPI !== 'cli') {
     $expected = (string) ($config['cron_secret'] ?? '');
@@ -55,7 +56,6 @@ if (!$rows) {
 }
 
 // Collect every unique symbol across users so we batch quote requests.
-$cryptoSet = ['BTC','ETH','SOL','ADA','XRP','DOGE','AVAX','LINK','LTC','BCH'];
 $allSymbols = [];
 $userBundles = [];
 foreach ($rows as $row) {
@@ -74,32 +74,12 @@ foreach ($rows as $row) {
 $allSymbols = array_keys($allSymbols);
 echo "[snapshot] " . count($userBundles) . " user(s), " . count($allSymbols) . " unique symbol(s)\n";
 
-// Fetch quotes once per symbol.
+// Fetch quotes once per symbol (Yahoo Finance, Alpha Vantage fallback).
 $quotes = [];
 foreach ($allSymbols as $symbol) {
-    $yahooSymbol = in_array($symbol, $cryptoSet, true) ? $symbol . '-USD' : $symbol;
-    $url = 'https://query1.finance.yahoo.com/v8/finance/chart/' . rawurlencode($yahooSymbol) . '?range=1d&interval=1d';
-    $raw = false;
-    if (function_exists('curl_init')) {
-        $ch = curl_init($url);
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true, CURLOPT_FOLLOWLOCATION => true, CURLOPT_TIMEOUT => 8,
-            CURLOPT_HTTPHEADER => ['Accept: application/json', 'User-Agent: MyDailyEdge-Cron/1.0'],
-        ]);
-        $raw = curl_exec($ch);
-        curl_close($ch);
-    } else {
-        $ctx = stream_context_create(['http' => ['timeout' => 8, 'header' => "Accept: application/json\r\nUser-Agent: MyDailyEdge-Cron/1.0\r\n"]]);
-        $raw = @file_get_contents($url, false, $ctx);
-    }
-    if ($raw === false) continue;
-    $decoded = json_decode($raw, true);
-    $meta = $decoded['chart']['result'][0]['meta'] ?? null;
-    if (!is_array($meta)) continue;
-    $price = (float) ($meta['regularMarketPrice'] ?? 0);
-    $previousClose = (float) ($meta['chartPreviousClose'] ?? $meta['previousClose'] ?? $price);
-    if ($price > 0) {
-        $quotes[$symbol] = ['price' => $price, 'previousClose' => $previousClose];
+    $quote = cron_fetch_quote($config, $symbol);
+    if ($quote !== null) {
+        $quotes[$symbol] = ['price' => $quote['price'], 'previousClose' => $quote['previousClose']];
     }
 }
 

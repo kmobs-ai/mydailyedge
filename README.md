@@ -182,3 +182,61 @@ The frontend works in local browser mode until the backend is configured. To ena
 ```
 
 The app stores one JSON state document per user in MySQL. That keeps this phase simple while still giving you login, private server storage, and cross-device sync.
+
+## Database migrations
+
+Fresh installs only need `database/schema.sql` — it already contains every
+table. Existing installs pick up new tables by running the numbered files in
+`database/migrations/` that they haven't applied yet, in order, via phpMyAdmin.
+
+The current migrations are:
+
+- `0001` — `version` column on `user_state` (optimistic concurrency)
+- `0002` — `alerts` table (price alerts)
+- `0003` — `push_subscriptions` table (browser push)
+- `0004` — `snapshots` table (daily history)
+- `0005` — `invitations` table (invite flow)
+- `0006` — `benchmarks` table (overview benchmark series)
+- `0007` — `auth_attempts` table (login/register rate limiting)
+
+After deploying the latest code, run any migration you haven't applied yet. The
+app is written to tolerate a not-yet-applied migration gracefully — for example,
+the login rate limiter fails open until `0007` exists — so deploying code before
+running the migration is safe.
+
+## Login rate limiting
+
+`api/auth.php` throttles brute-force attempts on login and register. Every
+attempt is recorded in `auth_attempts`; failed attempts are counted over a
+trailing 15-minute window against two ceilings (per IP and per email). Hitting
+either returns HTTP 429. A successful sign-in clears that account's failed rows
+so an ordinary streak of typos never locks the real user out. Requires migration
+`0007`; until that table exists the limiter fails open (auth still works,
+unthrottled).
+
+## Database backups
+
+`database/backup.sh` dumps the app database to a timestamped, gzipped file in
+`~/mydailyedge-backups` (outside the web root), verifies the dump is non-empty,
+then prunes anything older than 14 days. It reads DB credentials from
+`api/config.php` at runtime, so there are no secrets in the script itself.
+
+To schedule it in cPanel:
+
+1. Open **Cron Jobs**.
+2. Add a new entry, for example daily at 03:30:
+   - Schedule: `30 3 * * *`
+   - Command: `/home/<your-cpanel-user>/public_html/database/backup.sh >> /home/<your-cpanel-user>/cron-backup.log 2>&1`
+
+To restore a backup:
+
+```bash
+gunzip < ~/mydailyedge-backups/mydailyedge-YYYY-MM-DD_HHMMSS.sql.gz | mysql -u <db_user> -p <db_name>
+```
+
+## Email deliverability
+
+The app sends transactional email (alerts, invitations) via PHP `mail()`. For
+those messages to reach the inbox instead of spam, configure SPF, DKIM, and
+DMARC for your domain. This is DNS setup you apply yourself at your registrar —
+see `docs/email-deliverability.md` for the exact records and verification steps.
