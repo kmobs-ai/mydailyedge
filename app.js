@@ -44,10 +44,12 @@ const money = value => Number(value || 0).toLocaleString("en-US", { style: "curr
 const money2 = value => Number(value || 0).toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
 const pct = value => `${Number(value || 0) >= 0 ? "+" : ""}${Number(value || 0).toFixed(2)}%`;
 const byDateDesc = (a, b) => String(b.date).localeCompare(String(a.date));
-const DEMO_SYMBOLS = new Set(["NVDA", "AAPL", "VOO", "BTC", "TSLA"]);
-const DEMO_CLEANUP_VERSION = 4;
+// DEMO_SYMBOLS / DEMO_CLEANUP_VERSION / DEFAULT_PROFILE all live in lib/portfolio-math.js
+// — that script must be loaded BEFORE app.js (see index.html). One source of truth.
+const DEMO_SYMBOLS = PortfolioMath.DEMO_SYMBOLS;
+const DEMO_CLEANUP_VERSION = PortfolioMath.DEMO_CLEANUP_VERSION;
 const CHART_RANGES = [["24h","24H"],["7d","7D"],["1m","1M"],["6m","6M"],["ytd","YTD"],["all","ALL"]];
-const DEFAULT_PROFILE = { displayName: "", baseCurrency: "USD", timeZone: "America/New_York", investingStyle: "Long-term", notes: "" };
+const DEFAULT_PROFILE = PortfolioMath.DEFAULT_PROFILE;
 
 const seedState = {
   selectedSymbol: null, selectedTaskId: null, selectedSnapshotId: null,
@@ -68,34 +70,9 @@ let suppressSync = false;
 function addDays(dateString, days) { const d = new Date(`${dateString}T00:00:00`); d.setDate(d.getDate()+days); return d.toISOString().slice(0,10); }
 function loadState() { const stored = localStorage.getItem(STORE_KEY); if (!stored) return structuredClone(seedState); try { return migrateState({ ...structuredClone(seedState), ...JSON.parse(stored) }); } catch { return structuredClone(seedState); } }
 
-function migrateState(nextState) {
-  nextState.priceHistory ||= {};
-  nextState.chartMode ||= "asset"; nextState.chartRange ||= "1m"; nextState.chartStyle ||= "area"; nextState.newsFilter ||= "all"; nextState.overviewRange ||= "90d";
-  if (!Array.isArray(nextState.overviewBenchmarks)) nextState.overviewBenchmarks = [];
-  nextState.alertFilter ||= "active";
-  delete nextState.ideas;
-  delete nextState.selectedIdeaId;
-  delete nextState.ideaFilter;
-  if (Array.isArray(nextState.tasks)) {
-    nextState.tasks.forEach(t => { delete t.category; });
-  }
-  nextState.profile = { ...DEFAULT_PROFILE, ...(nextState.profile || {}) };
-  const hasDemoAssets = Array.isArray(nextState.assets) && nextState.assets.some(a => DEMO_SYMBOLS.has(a.symbol));
-  const hasDemoTradeIds = Array.isArray(nextState.trades) && nextState.trades.some(t => /^t[1-7]$/.test(String(t.id)));
-  if (hasDemoAssets || hasDemoTradeIds || Number(nextState.demoCleanupVersion || 0) < DEMO_CLEANUP_VERSION) nextState = removeDemoData(nextState);
-  return nextState;
-}
-
-function removeDemoData(nextState) {
-  nextState.assets = (nextState.assets || []).filter(a => !DEMO_SYMBOLS.has(a.symbol));
-  nextState.trades = (nextState.trades || []).filter(t => !DEMO_SYMBOLS.has(t.symbol) && !/^t[1-7]$/.test(String(t.id)));
-  nextState.tasks = (nextState.tasks || []).filter(t => !String(t.id || "").startsWith("task-"));
-  nextState.news = (nextState.news || []).filter(n => n.source !== "Sample Intel");
-  if (DEMO_SYMBOLS.has(nextState.selectedSymbol)) nextState.selectedSymbol = nextState.assets[0]?.symbol || null;
-  nextState.selectedTaskId = nextState.tasks[0]?.id || null;  delete nextState.demoDataCleared;
-  nextState.demoCleanupVersion = DEMO_CLEANUP_VERSION;
-  return nextState;
-}
+// migrateState / removeDemoData live in lib/portfolio-math.js — wrappers here for callsite compatibility.
+function migrateState(nextState) { return PortfolioMath.migrateState(nextState); }
+function removeDemoData(nextState) { return PortfolioMath.removeDemoData(nextState); }
 
 function saveState() { localStorage.setItem(STORE_KEY, JSON.stringify(state)); scheduleServerSave(); }
 
@@ -208,55 +185,12 @@ function getTrades(symbol) { if (!symbol) return []; return state.trades.filter(
 function formatQuantity(value, type) { return Number(value || 0).toFixed(type === "crypto" ? 5 : 2); }
 function averageCost(pos) { return pos?.quantity ? pos.cost / pos.quantity : Number(pos?.price || 0); }
 
-function buildLots(symbol) {
-  if (!symbol) return [];
-  const lots = [];
-  getTrades(symbol).sort((a, b) => String(a.date).localeCompare(String(b.date))).forEach(trade => {
-    const quantity = Number(trade.quantity || 0); const price = Number(trade.price || 0); const fees = Number(trade.fees || 0);
-    if (trade.action === "buy" || trade.action === "deposit") lots.push({ id: trade.id, symbol, date: trade.date, quantity, remaining: quantity, cost: quantity * price + fees, unitCost: quantity ? (quantity * price + fees) / quantity : 0 });
-    if (trade.action === "sell" || trade.action === "withdraw") {
-      let r = quantity;
-      for (const lot of lots) { if (r <= 0) break; const used = Math.min(lot.remaining, r); lot.remaining -= used; r -= used; }
-    }
-  });
-  return lots.filter(l => l.remaining > 0.0000001);
-}
-
-function positionFor(asset) {
-  if (!asset) return null;
-  const lots = buildLots(asset.symbol);
-  const quantity = lots.reduce((s, l) => s + l.remaining, 0);
-  const cost = lots.reduce((s, l) => s + l.remaining * l.unitCost, 0);
-  const value = quantity * Number(asset.price || 0);
-  const dayChangePct = asset.previousClose ? ((asset.price - asset.previousClose) / asset.previousClose) * 100 : 0;
-  const gain = value - cost; const gainPct = cost ? (gain / cost) * 100 : 0;
-  return { ...asset, quantity, cost, value, dayChangePct, gain, gainPct, lots };
-}
-
-function portfolio() {
-  const positions = state.assets.map(positionFor);
-  const value = positions.reduce((s, p) => s + p.value, 0);
-  const cost = positions.reduce((s, p) => s + p.cost, 0);
-  const previousValue = positions.reduce((s, p) => s + p.quantity * Number(p.previousClose || p.price || 0), 0);
-  const dayPnl = value - previousValue; const dayPct = previousValue ? (dayPnl / previousValue) * 100 : 0;
-  const gain = value - cost; const gainPct = cost ? (gain / cost) * 100 : 0;
-  return { positions, value, cost, dayPnl, dayPct, gain, gainPct };
-}
-
-function estimateTax({ symbol, quantity, price, date, shortRate, longRate }) {
-  let remaining = Number(quantity || 0); const salePrice = Number(price || 0); const saleDate = new Date(`${date}T00:00:00`); const rows = [];
-  buildLots(symbol).sort((a, b) => String(a.date).localeCompare(String(b.date))).forEach(lot => {
-    if (remaining <= 0) return;
-    const qty = Math.min(lot.remaining, remaining);
-    const proceeds = qty * salePrice; const basis = qty * lot.unitCost; const gain = proceeds - basis;
-    const daysHeld = Math.round((saleDate - new Date(`${lot.date}T00:00:00`)) / 86400000);
-    const term = daysHeld >= 365 ? "long" : "short";
-    const tax = gain > 0 ? gain * ((term === "long" ? Number(longRate) : Number(shortRate)) / 100) : 0;
-    rows.push({ qty, date: lot.date, unitCost: lot.unitCost, proceeds, basis, gain, term, tax });
-    remaining -= qty;
-  });
-  return { rows, remaining, proceeds: rows.reduce((s, r) => s + r.proceeds, 0), basis: rows.reduce((s, r) => s + r.basis, 0), gain: rows.reduce((s, r) => s + r.gain, 0), tax: rows.reduce((s, r) => s + r.tax, 0) };
-}
+// Pure math lives in lib/portfolio-math.js (tested by tests/portfolio-math.test.js).
+// These wrappers pass current `state.trades` / `state.assets` so callers stay unchanged.
+function buildLots(symbol) { return PortfolioMath.buildLotsFromTrades(state.trades, symbol); }
+function positionFor(asset) { return PortfolioMath.positionForAsset(asset, state.trades); }
+function portfolio() { return PortfolioMath.portfolioFromState(state); }
+function estimateTax(params) { return PortfolioMath.estimateTaxFromTrades(params, state.trades); }
 
 function render() { saveState(); renderClock(); renderTopState(); updateAuthGate(); renderOverview(); renderPortfolio(); renderTasks(); renderIntel(); renderHistory(); renderProfile(); renderInvitations(); renderAlerts(); renderPushStatus(); renderUserChip(); hydrateSelects(); renderConflictBanner(); renderAlertBanner(); }
 function renderClock() { document.getElementById("clock").textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }); document.getElementById("overviewTitle").textContent = new Date().toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" }); }
@@ -701,57 +635,8 @@ async function renderOverviewPerformance(port) {
 // =========================
 // Position heatmap (squarified treemap)
 // =========================
-function squarifyTreemap(items, w, h) {
-  // items: [{value, ...}]. Returns parallel array of {x, y, w, h, item}.
-  const positions = new Array(items.length);
-  const total = items.reduce((s, x) => s + Math.max(0, x.value || 0), 0);
-  if (!total || w <= 0 || h <= 0) return items.map((it, i) => ({ x: 0, y: 0, w: 0, h: 0, item: it, _i: i }));
-  const scale = (w * h) / total;
-  const tiles = items.map((it, i) => ({ a: Math.max(0, it.value || 0) * scale, i, item: it })).sort((a, b) => b.a - a.a);
-
-  function worstRatio(row, side) {
-    if (!row.length || side <= 0) return Infinity;
-    const sum = row.reduce((s, t) => s + t.a, 0);
-    const max = Math.max(...row.map(t => t.a));
-    const min = Math.min(...row.map(t => t.a));
-    return Math.max((side * side * max) / (sum * sum), (sum * sum) / (side * side * min));
-  }
-
-  function commitRow(row, rect) {
-    const sum = row.reduce((s, t) => s + t.a, 0);
-    const horiz = rect.w >= rect.h;
-    const depth = sum / (horiz ? rect.h : rect.w);
-    let offset = 0;
-    for (const t of row) {
-      const len = t.a / depth;
-      if (horiz) {
-        positions[t.i] = { x: rect.x, y: rect.y + offset, w: depth, h: len, item: t.item };
-        offset += len;
-      } else {
-        positions[t.i] = { x: rect.x + offset, y: rect.y, w: len, h: depth, item: t.item };
-        offset += len;
-      }
-    }
-    return horiz
-      ? { x: rect.x + depth, y: rect.y, w: rect.w - depth, h: rect.h }
-      : { x: rect.x, y: rect.y + depth, w: rect.w, h: rect.h - depth };
-  }
-
-  let rect = { x: 0, y: 0, w, h };
-  let row = [];
-  for (const t of tiles) {
-    const side = Math.min(rect.w, rect.h);
-    const trial = [...row, t];
-    if (row.length === 0 || worstRatio(trial, side) <= worstRatio(row, side)) {
-      row.push(t);
-    } else {
-      rect = commitRow(row, rect);
-      row = [t];
-    }
-  }
-  if (row.length) commitRow(row, rect);
-  return positions;
-}
+// squarifyTreemap lives in lib/portfolio-math.js — wrapper preserves the old call signature.
+function squarifyTreemap(items, w, h) { return PortfolioMath.squarifyTreemap(items, w, h); }
 
 function heatmapColor(pct, maxAbs) {
   if (!Number.isFinite(pct) || maxAbs <= 0) return "rgba(40,40,47,0.6)";

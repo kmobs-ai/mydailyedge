@@ -6,6 +6,9 @@ deployment:
     - /bin/cp -f index.html $DEPLOYPATH
     - /bin/cp -f styles.css $DEPLOYPATH
     - /bin/cp -f app.js $DEPLOYPATH
+    # Shared math library (pure functions, also imported by tests/)
+    - /bin/mkdir -p ${DEPLOYPATH}lib
+    - /bin/cp -f lib/portfolio-math.js ${DEPLOYPATH}lib/
     - /bin/cp -f .htaccess $DEPLOYPATH
     - /bin/cp -f manifest.webmanifest $DEPLOYPATH
     - /bin/cp -f sw.js $DEPLOYPATH
@@ -36,6 +39,4 @@ deployment:
     - /bin/cp -n api/config.sample.php ${DEPLOYPATH}api/config.sample.php
     # Cron worker
     - /bin/mkdir -p ${DEPLOYPATH}api/cron
-    - /bin/cp -f api/cron/check-alerts.php ${DEPLOYPATH}api/cron/
-    - /bin/cp -f api/cron/generate-vapid.php ${DEPLOYPATH}api/cron/
-    - /bin/cp -f api/cron/daily-snapshot.php ${DEPLOYPATH}api/cron/
+    - /bin/cp -f api/cron/check-alerts.p

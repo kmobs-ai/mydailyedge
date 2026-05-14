@@ -44,6 +44,22 @@ When adding a portfolio position, enter a ticker and click **Lookup**. The app w
 
 Open `index.html` directly in a browser, or serve the folder with any static server.
 
+## Running the tests
+
+The pure math (FIFO lot tracking, position rollup, tax estimator, state migration, treemap layout) lives in `lib/portfolio-math.js` and is tested with Node's built-in test runner — no dependencies, no install step:
+
+```bash
+node --test tests/portfolio-math.test.js
+```
+
+Or to run every test under `tests/`:
+
+```bash
+node --test
+```
+
+The browser loads the same `lib/portfolio-math.js` via a `<script>` tag before `app.js`, so the production code and the tested code are the same source. Tests run in well under a second.
+
 ## GoDaddy cPanel deployment
 
 For the simplest deployment to `mydailyedge.io`, upload these files into the domain document root in cPanel File Manager:
