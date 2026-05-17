@@ -834,7 +834,25 @@ function renderPortfolio() {
   const port = portfolio();
   const selectedAsset = getAsset();
   const selected = selectedAsset ? positionFor(selectedAsset) : null;
-  document.getElementById("positionCount").textContent = `${port.positions.length} assets`;
+  const posCount = port.positions.length;
+  document.getElementById("positionCount").textContent = `${posCount} assets`;
+  // New value-first section header (replaces the implicit "Portfolio" title).
+  // Big mono number on top, eyebrow names the section, sub-line summarizes day + total P&L.
+  const head = document.getElementById("portfolioHead");
+  if (head) {
+    document.getElementById("portfolioHeadCount").textContent = `${posCount} position${posCount === 1 ? "" : "s"}`;
+    document.getElementById("portfolioHeadValue").textContent = money2(port.value);
+    const daySign = port.dayPnl >= 0 ? "+" : "";
+    const gainSign = port.gain >= 0 ? "+" : "";
+    document.getElementById("portfolioHeadSub").innerHTML = `
+      <span class="${port.dayPnl >= 0 ? "up" : "dn"}">${daySign}${money(port.dayPnl)} today</span>
+      <span class="sep">&middot;</span>
+      <span class="${port.dayPct >= 0 ? "up" : "dn"}">${pct(port.dayPct)}</span>
+      <span class="sep">&middot;</span>
+      <span class="${port.gain >= 0 ? "up" : "dn"}">${gainSign}${money(port.gain)} total</span>
+      <span class="sep">&middot;</span>
+      <span class="${port.gainPct >= 0 ? "up" : "dn"}">${pct(port.gainPct)}</span>`;
+  }
   document.getElementById("portfolioSummary").innerHTML = `
     <div class="summary-value">${money(port.value)}</div>
     <div class="summary-row">
@@ -843,20 +861,22 @@ function renderPortfolio() {
       <div class="summary-stat"><strong class="${port.gain >= 0 ? "up" : "dn"}">${money(port.gain)}</strong><span>All-time P&L</span></div>
     </div>
     <div class="alloc-stack">${allocationPieces(port)}</div>`;
-  document.getElementById("positionList").innerHTML = port.positions.length ? port.positions.sort((a, b) => b.value - a.value).map(pos => `
+  // Position row: per-share current price is the headline (matches what users see in their broker app);
+  // day-% lives in the sub-meta beside shares and total position value.
+  document.getElementById("positionList").innerHTML = posCount ? port.positions.sort((a, b) => b.value - a.value).map(pos => `
     <div class="position-item ${pos.symbol === selected.symbol ? "active" : ""}" data-select-asset="${pos.symbol}">
       <div class="row-top">
         <div class="asset-title-row"><span class="dot" style="background:${pos.color}"></span><div><div class="ticker">${pos.symbol}</div><div class="asset-name">${pos.name}</div></div></div>
-        <div class="price-block"><div class="mono">${money(pos.value)}</div><div class="mono ${pos.dayChangePct >= 0 ? "up" : "dn"}">${pct(pos.dayChangePct)}</div></div>
+        <div class="price-block"><div class="mono">${money2(pos.price)}</div></div>
       </div>
       <div class="row-meta">
         <span class="muted mono">${pos.quantity.toFixed(pos.type === "crypto" ? 4 : 2)} units</span>
-        <span class="muted mono">${pos.quantity <= 0 ? "Add lot" : (pos.marketDataLinked === false ? "Manual" : "Live")}</span>
-        <span class="muted mono">${port.value ? (pos.value / port.value * 100).toFixed(1) : "0.0"}%</span>
+        <span class="muted mono">${money(pos.value)} val</span>
+        <span class="mono ${pos.dayChangePct >= 0 ? "up" : "dn"}">${pct(pos.dayChangePct)} today</span>
       </div>
       <div class="row-meta pnl-row">
-        <span class="${pos.gain >= 0 ? "up" : "dn"} mono">P&L ${money(pos.gain)}</span>
-        <span class="${pos.gainPct >= 0 ? "up" : "dn"} mono">${pct(pos.gainPct)}</span>
+        <span class="${pos.gain >= 0 ? "up" : "dn"} mono">P&L ${money(pos.gain)} (${pct(pos.gainPct)})</span>
+        <span class="muted mono">${port.value ? (pos.value / port.value * 100).toFixed(1) : "0.0"}% of total</span>
       </div>
     </div>`).join("") : `<div class="summary-card"><div class="empty">No positions yet</div><button class="btn btn-primary full" data-open-modal="assetModal">Add Position</button></div>`;
   if (selected) renderAssetDetail(selected); else renderEmptyPortfolioDetail();

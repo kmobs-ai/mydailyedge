@@ -1075,3 +1075,18 @@ textarea { resize: vertical; min-height: 78px; }
     border-radius: 999px;
   }
 }
+
+/* Portfolio tab — value-first section header. The big mono number replaces
+   the implicit "Portfolio" title; eyebrow above carries the section identity,
+   sub-line below shows day + total P&L in one scan. Lives at the top of
+   #portfolioView, above the split-layout. */
+.portfolio-head { padding: 18px 24px 16px; border-bottom: 1px solid var(--line); }
+.portfolio-head .hero-eyebrow { margin: 0 0 6px; }
+.portfolio-head-value { font-family: var(--mono); font-size: 36px; font-weight: 500; letter-spacing: -0.01em; color: var(--bright); line-height: 1.05; margin: 0 0 8px; }
+.portfolio-head-sub { font-family: var(--mono); font-size: 11px; letter-spacing: 0.04em; color: var(--sub); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.portfolio-head-sub .sep { color: var(--dim); }
+@media (max-width: 780px) {
+  .portfolio-head { padding: 14px 16px 12px; }
+  .portfolio-head-value { font-size: 30px; }
+  .portfolio-head-sub { font-size: 10.5px; }
+}
