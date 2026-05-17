@@ -520,4 +520,8 @@
     </form>
   </div>
 
-  <!-- portfolio-math.js MUST load before app.js — app.
+  <!-- portfolio-math.js MUST load before app.js — app.js reads PortfolioMath.DEMO_SYMBOLS / DEFAULT_PROFILE at top-level. -->
+  <script src="lib/portfolio-math.js?v=0.3.0"></script>
+  <script src="app.js?v=0.3.0"></script>
+</body>
+</html>
