@@ -1430,6 +1430,7 @@ function resetAssetForm() {
   form.elements.mode.value = "create"; form.elements.originalSymbol.value = ""; form.elements.symbol.disabled = false;
   form.elements.purchaseDate.value = todayISO(); form.elements.fees.value = "0";
   document.getElementById("assetModalTitle").textContent = "Position";
+  const delBtn = document.getElementById("deletePositionBtn"); if (delBtn) delBtn.hidden = true;
   setAssetLookupStatus("Lookup connects the asset to server-side market data for future refreshes.");
 }
 
@@ -1445,6 +1446,7 @@ function fillAssetForm(symbol) {
   form.elements.purchaseDate.value = pos.lots[0]?.date || todayISO();
   form.elements.fees.value = "0"; form.elements.notes.value = asset.notes || "";
   document.getElementById("assetModalTitle").textContent = `Edit ${asset.symbol}`;
+  const delBtn = document.getElementById("deletePositionBtn"); if (delBtn) delBtn.hidden = false;
   setAssetLookupStatus("Editing replaces this holding's current lots with the quantity and average cost entered here.");
 }
 
@@ -1789,6 +1791,21 @@ document.addEventListener("click", event => {
 });
 
 document.getElementById("assetForm").addEventListener("submit", e => { e.preventDefault(); upsertAsset(e.currentTarget); e.currentTarget.reset(); setAssetLookupStatus("Lookup connects the asset to server-side market data for future refreshes."); closeModals(); render(); });
+document.getElementById("deletePositionBtn").addEventListener("click", () => {
+  const form = document.getElementById("assetForm");
+  const symbol = (form.elements.originalSymbol.value || form.elements.symbol.value || "").toUpperCase();
+  if (!symbol) return;
+  const tradeCount = state.trades.filter(t => t.symbol === symbol).length;
+  const msg = tradeCount
+    ? `Delete position ${symbol}? This also removes ${tradeCount} trade entr${tradeCount === 1 ? "y" : "ies"} and tax-lot history. This cannot be undone.`
+    : `Delete position ${symbol}? This cannot be undone.`;
+  if (!confirm(msg)) return;
+  state.assets = state.assets.filter(a => a.symbol !== symbol);
+  state.trades = state.trades.filter(t => t.symbol !== symbol);
+  if (state.selectedSymbol === symbol) state.selectedSymbol = state.assets[0]?.symbol || null;
+  closeModals();
+  render();
+});
 document.getElementById("assetLookupBtn").addEventListener("click", lookupAssetMarketData);
 document.getElementById("tradeForm").addEventListener("submit", e => { e.preventDefault(); recordTrade(e.currentTarget); e.currentTarget.reset(); closeModals(); render(); });
 document.getElementById("taskForm").addEventListener("submit", e => { e.preventDefault(); addTask(e.currentTarget); e.currentTarget.reset(); closeModals(); render(); });
