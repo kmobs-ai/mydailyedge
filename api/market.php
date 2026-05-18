@@ -58,6 +58,28 @@ function http_get(string $url, int $timeout = 8, array $headers = ['Accept: appl
     return $raw === false ? null : $raw;
 }
 
+
+/**
+ * Lightweight keyword-based sentiment classifier for news headlines.
+ * Negative words win ties (caution > celebration is the safer call).
+ * Returns 'Positive' | 'Negative' | 'Neutral'. Swap to an LLM call later
+ * if richer signal becomes valuable.
+ */
+function classify_sentiment(string $title): string
+{
+    $t = strtolower($title);
+    $negative = ['miss','missed','misses','missing','cut','cuts','cutting','downgrade','downgrades','downgraded','underperform','underperforming','plunge','plunges','plunged','plunging','tumble','tumbles','tumbled','tumbling','fall','falls','fell','drop','drops','dropped','dropping','decline','declines','declined','declining','warning','concern','concerns','bubble','mania','crash','crashes','crashed','halt','halts','halted','investigation','lawsuit','fraud','bearish','sell-off','selloff','collapse','collapses','collapsed','bankrupt','bankruptcy','recession','slowdown','weak','weaker','weakest','sinking','sink','sinks','sank','sliding','slide','slides','slid','loss','losses','losing','slump','slumps','slumped','worry','worries','worried','risk','risks','risky','threat','threats','threatens','threatened'];
+    $positive = ['beat','beats','beating','beaten','rally','rallies','rallying','rallied','surge','surges','surging','surged','soar','soars','soaring','soared','raises','raised','raising','upgrade','upgrades','upgraded','outperform','outperforming','outperformed','strong','strongest','stronger','gain','gains','gaining','gained','record','breakout','breakouts','jumps','jumped','jumping','leaps','leaped','leaping','tops','topped','topping','positive','bullish','momentum','optimistic','optimism','growth','expand','expands','expanding','expanded','expansion','accelerate','accelerates','accelerating','accelerated','boost','boosts','boosted','boosting','rebound','rebounds','rebounded','rebounding','recovery','recovered','recovering','breakthrough'];
+    $words = preg_split('/[^a-z\-]+/', $t) ?: [];
+    foreach ($negative as $w) {
+        if (in_array($w, $words, true) || strpos($t, $w) !== false) return 'Negative';
+    }
+    foreach ($positive as $w) {
+        if (in_array($w, $words, true) || strpos($t, $w) !== false) return 'Positive';
+    }
+    return 'Neutral';
+}
+
 function yahoo_quote(string $symbol, ?string $displaySymbol = null, string $assetType = 'stock'): ?array
 {
     $url = 'https://query1.finance.yahoo.com/v8/finance/chart/' . rawurlencode($symbol) . '?range=1d&interval=1d';
@@ -133,7 +155,7 @@ function alpha_news(array $tickers): array
         if (!empty($item['ticker_sentiment'][0]['ticker'])) $ticker = str_replace('CRYPTO:', '', (string) $item['ticker_sentiment'][0]['ticker']);
         $published = (string) ($item['time_published'] ?? '');
         $date = $published ? preg_replace('/^(\d{4})(\d{2})(\d{2}).*/', '$1-$2-$3', $published) : date('Y-m-d');
-        return ['id' => bin2hex(random_bytes(5)), 'symbol' => $ticker, 'category' => 'portfolio', 'title' => (string) ($item['title'] ?? 'Untitled'), 'source' => (string) ($item['source'] ?? 'Alpha Vantage'), 'sourceKey' => 'alphavantage', 'url' => (string) ($item['url'] ?? ''), 'date' => $date, 'publishedAt' => $published ? preg_replace('/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2}).*/', '$1-$2-$3T$4:$5:$6', $published) : date('c'), 'sentiment' => (string) ($item['overall_sentiment_label'] ?? 'Neutral')];
+        return ['id' => bin2hex(random_bytes(5)), 'symbol' => $ticker, 'category' => 'portfolio', 'title' => (string) ($item['title'] ?? 'Untitled'), 'source' => (string) ($item['source'] ?? 'Alpha Vantage'), 'sourceKey' => 'alphavantage', 'url' => (string) ($item['url'] ?? ''), 'date' => $date, 'publishedAt' => $published ? preg_replace('/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2}).*/', '$1-$2-$3T$4:$5:$6', $published) : date('c'), 'sentiment' => classify_sentiment((string) ($item['title'] ?? ''))];
     }, array_slice($feed, 0, 25));
 }
 
@@ -155,7 +177,7 @@ function yahoo_news(array $tickers): array
         if (!$xml || empty($xml->channel->item)) continue;
         foreach ($xml->channel->item as $item) {
             $published = strtotime((string) ($item->pubDate ?? '')) ?: time();
-            $items[] = ['id' => bin2hex(random_bytes(5)), 'symbol' => $symbol, 'category' => 'portfolio', 'title' => trim((string) ($item->title ?? 'Untitled')), 'source' => 'Yahoo Finance', 'sourceKey' => 'yahoo', 'url' => trim((string) ($item->link ?? '')), 'date' => date('Y-m-d', $published), 'publishedAt' => date('c', $published), 'sentiment' => 'Neutral'];
+            $title = trim((string) ($item->title ?? 'Untitled')); $items[] = ['id' => bin2hex(random_bytes(5)), 'symbol' => $symbol, 'category' => 'portfolio', 'title' => $title, 'source' => 'Yahoo Finance', 'sourceKey' => 'yahoo', 'url' => trim((string) ($item->link ?? '')), 'date' => date('Y-m-d', $published), 'publishedAt' => date('c', $published), 'sentiment' => classify_sentiment($title)];
         }
     }
     usort($items, static function (array $a, array $b): int { return strcmp((string) $b['date'], (string) $a['date']); });
@@ -203,7 +225,7 @@ function fetch_rss_feed(string $url, string $sourceLabel, string $sourceKey, str
             $title = trim((string) ($item->title ?? 'Untitled'));
             $link = trim((string) ($item->link ?? ''));
             if ($title === '' || $link === '') continue;
-            $items[] = ['id' => bin2hex(random_bytes(5)), 'symbol' => 'MKT', 'category' => $defaultCategory, 'title' => $title, 'source' => $sourceLabel, 'sourceKey' => $sourceKey, 'url' => $link, 'date' => date('Y-m-d', $pub), 'publishedAt' => date('c', $pub), 'sentiment' => 'Neutral'];
+            $items[] = ['id' => bin2hex(random_bytes(5)), 'symbol' => 'MKT', 'category' => $defaultCategory, 'title' => $title, 'source' => $sourceLabel, 'sourceKey' => $sourceKey, 'url' => $link, 'date' => date('Y-m-d', $pub), 'publishedAt' => date('c', $pub), 'sentiment' => classify_sentiment($title)];
         }
     }
     if (!$items && isset($xml->entry)) {
@@ -214,7 +236,7 @@ function fetch_rss_feed(string $url, string $sourceLabel, string $sourceKey, str
             if (isset($entry->link['href'])) $link = trim((string) $entry->link['href']);
             elseif (isset($entry->link)) $link = trim((string) $entry->link);
             if ($title === '' || $link === '') continue;
-            $items[] = ['id' => bin2hex(random_bytes(5)), 'symbol' => 'MKT', 'category' => $defaultCategory, 'title' => $title, 'source' => $sourceLabel, 'sourceKey' => $sourceKey, 'url' => $link, 'date' => date('Y-m-d', $pub), 'publishedAt' => date('c', $pub), 'sentiment' => 'Neutral'];
+            $items[] = ['id' => bin2hex(random_bytes(5)), 'symbol' => 'MKT', 'category' => $defaultCategory, 'title' => $title, 'source' => $sourceLabel, 'sourceKey' => $sourceKey, 'url' => $link, 'date' => date('Y-m-d', $pub), 'publishedAt' => date('c', $pub), 'sentiment' => classify_sentiment($title)];
         }
     }
     @file_put_contents($cacheFile, json_encode($items, JSON_UNESCAPED_SLASHES));

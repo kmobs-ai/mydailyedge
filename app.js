@@ -4,7 +4,7 @@
 // Lightweight error reporter — POSTs uncaught exceptions to api/log.php.
 // Per-session capped at 5 reports so a single broken loop doesn't spam.
 // =========================
-const APP_VERSION = "0.4.0";
+const APP_VERSION = "0.4.1";
 let _errorReportCount = 0;
 function reportFrontendError(kind, message, extras = {}) {
   if (_errorReportCount >= 5) return;
@@ -1108,33 +1108,215 @@ function renderTaskDetail() {
 
 function filterNews() {
   const filter = state.newsFilter || "all";
+  const tickerFilter = state.newsTickerFilter || null; // single-ticker drilldown set by clicking trending pills / coverage map
   const tickers = new Set(state.assets.map(a => a.symbol).filter(Boolean));
   const cryptoTickers = new Set(["BTC","ETH","SOL","ADA","XRP","DOGE","AVAX","LINK","LTC","BCH"]);
-  return state.news.filter(item => {
+  return (state.news || []).filter(item => {
+    if (tickerFilter && String(item.symbol || "").toUpperCase() !== tickerFilter) return false;
     if (filter === "all") return true;
     if (filter === "portfolio") return tickers.has(item.symbol);
     if (filter === "crypto") return ["theblock","coindesk","cointelegraph"].includes(item.sourceKey || "") || (item.category || "").toLowerCase() === "crypto" || cryptoTickers.has(String(item.symbol).toUpperCase());
     if (filter === "markets") return (item.category || "").toLowerCase() === "markets" || item.sourceKey === "yahoo";
     if (filter === "research") { const s = String(item.sentiment || "").toLowerCase(); return s !== "neutral" && s !== ""; }
+    if (filter === "saved") return !!item.saved;
+    if (filter === "unread") return !item.read;
     return true;
   });
 }
 
 function sourceLogoChip(item) { const key = (item.sourceKey || "").toLowerCase(); const label = item.source || "Source"; return `<span class="news-source ${key}">${label}</span>`; }
 
+// =========================
+// News intelligence (renderIntel + helpers)
+// =========================
+
+function newsSentimentClass(sentiment) {
+  const s = String(sentiment || "neutral").toLowerCase();
+  if (s.startsWith("pos") || s === "bullish" || s.includes("somewhat-bullish")) return "pos";
+  if (s.startsWith("neg") || s === "bearish" || s.includes("somewhat-bearish") || s === "caution") return "neg";
+  return "neu";
+}
+
+function escapeHtml(s) { return String(s || "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"})[c]); }
+
+function formatRelDate(s) {
+  if (!s) return "";
+  const d = new Date(s);
+  if (isNaN(d.getTime())) return String(s);
+  const diffMs = Date.now() - d.getTime();
+  if (diffMs < 0) return d.toISOString().slice(0,10);
+  const diffMin = Math.round(diffMs / 60000);
+  if (diffMin < 60) return `${Math.max(1, diffMin)}m ago`;
+  const diffHr = Math.round(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  const diffDay = Math.round(diffHr / 24);
+  if (diffDay < 7) return `${diffDay}d ago`;
+  return d.toISOString().slice(0,10);
+}
+
+// Bookmark + external-link SVGs reused in hero + row. Outline style, currentColor stroke.
+const ICON_BOOKMARK = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>`;
+const ICON_OPEN = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`;
+
+// Pick the most consequential story to spotlight: prefer recent + strong-signal
+// items on portfolio tickers, fall back to first portfolio story, then first story.
+function pickNewsHero(news) {
+  if (!news.length) return null;
+  const tickers = new Set(state.assets.map(a => a.symbol));
+  const sorted = news.slice().sort((a, b) =>
+    String(b.publishedAt || b.date || "").localeCompare(String(a.publishedAt || a.date || ""))
+  );
+  return (
+    sorted.find(n => tickers.has(n.symbol) && newsSentimentClass(n.sentiment) !== "neu") ||
+    sorted.find(n => tickers.has(n.symbol)) ||
+    sorted[0]
+  );
+}
+
 function renderIntel() {
   const positions = portfolio().positions;
-  document.getElementById("watchCount").textContent = String(positions.length);
+  const news = state.news || [];
+
+  // API-key indicator (legacy element — only updated if present)
   const apiKeyInput = document.getElementById("apiKey");
   if (apiKeyInput) apiKeyInput.value = auth.configured ? (auth.marketDataConfigured ? `${auth.marketDataProvider || "Server quotes"} · multi-source RSS` : "Market data unavailable") : (state.apiKey ? "Browser fallback key saved" : "Backend not configured");
-  document.getElementById("watchList").innerHTML = positions.map(pos => `<div class="nav-item" data-select-asset="${pos.symbol}"><span class="nav-name">${pos.symbol}</span><span class="nav-count">${pct(pos.dayChangePct)}</span></div>`).join("") || empty("Add positions to build your watchlist.");
-  document.querySelectorAll("[data-news-filter]").forEach(b => b.classList.toggle("active", b.dataset.newsFilter === (state.newsFilter || "all")));
+
+  // --- Per-ticker stats: story count + sentiment proportions ---
+  const tickerStats = new Map();
+  news.forEach(n => {
+    const tk = String(n.symbol || "MKT").toUpperCase();
+    if (!tickerStats.has(tk)) tickerStats.set(tk, { count: 0, pos: 0, neu: 0, neg: 0 });
+    const s = tickerStats.get(tk);
+    s.count++;
+    const cls = newsSentimentClass(n.sentiment);
+    if (cls === "pos") s.pos++; else if (cls === "neg") s.neg++; else s.neu++;
+  });
+
+  // --- Coverage map (left sidebar): portfolio tickers with sentiment-proportion bars ---
+  const coverageList = positions.map(p => {
+    const stats = tickerStats.get(p.symbol) || { count: 0, pos: 0, neu: 0, neg: 0 };
+    return { symbol: p.symbol, dayChangePct: p.dayChangePct, ...stats };
+  });
+  const coverageCount = document.getElementById("coverageCount"); if (coverageCount) coverageCount.textContent = String(coverageList.length);
+  const coverageMap = document.getElementById("coverageMap");
+  if (coverageMap) {
+    coverageMap.innerHTML = coverageList.length ? coverageList.map(c => {
+      const total = c.count || 1;
+      const posPct = (c.pos / total) * 100;
+      const neuPct = (c.neu / total) * 100;
+      const negPct = (c.neg / total) * 100;
+      const lean = c.count === 0 ? "no stories yet" : c.pos > c.neg ? "lean positive" : c.neg > c.pos ? "lean negative" : "mixed";
+      const isActive = state.newsTickerFilter === c.symbol;
+      return `<div class="coverage-row${isActive ? ' active' : ''}" data-news-ticker="${c.symbol}">
+        <div class="coverage-top"><span class="coverage-sym">${c.symbol}</span><span class="coverage-chg mono ${c.dayChangePct >= 0 ? 'up' : 'dn'}">${pct(c.dayChangePct)}</span></div>
+        <div class="coverage-mid">${c.count} stor${c.count === 1 ? 'y' : 'ies'} &middot; ${lean}</div>
+        <div class="coverage-bar"><span class="neg" style="width:${negPct}%"></span><span class="neu" style="width:${neuPct}%"></span><span class="pos" style="width:${posPct}%"></span></div>
+      </div>`;
+    }).join("") : empty("Add positions to build coverage.");
+  }
+
+  // --- Trending tickers strip (top 6 by story count, excluding MKT) ---
+  const trending = Array.from(tickerStats.entries())
+    .filter(([tk]) => tk !== "MKT")
+    .sort((a, b) => b[1].count - a[1].count)
+    .slice(0, 6);
+  const trendingEl = document.getElementById("newsTrending");
+  if (trendingEl) {
+    if (trending.length) {
+      trendingEl.hidden = false;
+      trendingEl.innerHTML = `<span class="trend-label">Trending</span>` + trending.map(([tk, s]) => {
+        const dotColor = s.pos > s.neg ? "#67aa7d" : s.neg > s.pos ? "#c95c50" : "#888780";
+        const isActive = state.newsTickerFilter === tk;
+        return `<button type="button" class="news-pill${isActive ? ' active' : ''}" data-news-ticker="${tk}"><span class="news-pill-dot" style="background:${dotColor}"></span>${tk}<span class="news-pill-ct">${s.count}</span></button>`;
+      }).join("");
+    } else {
+      trendingEl.hidden = true;
+      trendingEl.innerHTML = "";
+    }
+  }
+
+  // --- Filter tabs ---
+  const filter = state.newsFilter || "all";
+  document.querySelectorAll("[data-news-filter]").forEach(b => b.classList.toggle("active", b.dataset.newsFilter === filter));
+  const savedCt = document.getElementById("newsSavedCt"); if (savedCt) savedCt.textContent = String(news.filter(n => n.saved).length);
+  const unreadCt = document.getElementById("newsUnreadCt"); if (unreadCt) unreadCt.textContent = String(news.filter(n => !n.read).length);
+
+  // --- Hero "Top story" card ---
+  const heroEl = document.getElementById("newsHero");
+  if (heroEl) {
+    const hero = pickNewsHero(news);
+    if (hero && !state.newsTickerFilter && filter === "all") {
+      const cls = newsSentimentClass(hero.sentiment);
+      const tagLabel = cls === "pos" ? "Strong signal" : cls === "neg" ? "Caution signal" : "Top story";
+      heroEl.hidden = false;
+      heroEl.innerHTML = `<div class="news-hero-card ${cls} ${hero.read ? 'read' : ''}" data-news-id="${hero.id}">
+        <div class="news-hero-tag">Top story &middot; ${tagLabel}${hero.symbol && hero.symbol !== 'MKT' ? ` &middot; ${hero.symbol}` : ''}</div>
+        <h3 class="news-hero-headline">${escapeHtml(hero.title)}</h3>
+        <div class="news-hero-foot">
+          <span>${escapeHtml(hero.source || 'Source')}</span><span class="sep">&middot;</span>
+          <span>${formatRelDate(hero.publishedAt || hero.date)}</span>
+          <span class="grow"></span>
+          <button type="button" class="news-act${hero.saved ? ' saved' : ''}" data-news-save="${hero.id}" aria-label="Save">${ICON_BOOKMARK}</button>
+          ${cleanUrl(hero.url) ? `<a class="news-act" data-news-stop href="${cleanUrl(hero.url)}" target="_blank" rel="noopener noreferrer" aria-label="Open">${ICON_OPEN}</a>` : ''}
+        </div>
+      </div>`;
+    } else {
+      heroEl.hidden = true;
+      heroEl.innerHTML = "";
+    }
+  }
+
+  // --- News list ---
   const filtered = filterNews();
-  document.getElementById("newsFeed").innerHTML = filtered.map((item, index) => {
-    const sentimentKey = String(item.sentiment || "neutral").toLowerCase().replace(/\s+/g, "-");
-    const showTicker = item.symbol && item.symbol !== "MKT";
-    return `<article class="news-row"><span class="news-num">${String(index + 1).padStart(2, "0")}</span><div><div class="row-meta">${showTicker ? `<span class="tag stock">${item.symbol}</span>` : ""}${sourceLogoChip(item)}<span class="mono muted">${item.date || ""}</span></div><h2 class="news-title">${cleanUrl(item.url) ? `<a href="${cleanUrl(item.url)}" target="_blank" rel="noopener noreferrer">${item.title}</a>` : item.title}</h2><div class="news-meta"><span class="sentiment-pill ${sentimentKey}">${item.sentiment || "Neutral"}</span>${item.category ? `<span class="mono muted">${item.category}</span>` : ""}</div></div></article>`;
-  }).join("") || empty("Refresh Intel to pull headlines from The Block, CoinDesk, Cointelegraph, Yahoo Finance, and your tickers.");
+  let feedHtml;
+  if (filtered.length) {
+    feedHtml = filtered.map(item => {
+      const cls = newsSentimentClass(item.sentiment);
+      const sentLabel = cls === "pos" ? "Positive" : cls === "neg" ? "Negative" : "Neutral";
+      const showTicker = item.symbol && item.symbol !== "MKT";
+      const url = cleanUrl(item.url);
+      return `<article class="news-item ${item.read ? 'read' : ''}" data-news-id="${item.id}">
+        <span class="news-sent-bar ${cls}"></span>
+        <div class="news-content">
+          <div class="news-top">
+            <span class="news-tk ${showTicker ? '' : 'mkt'}">${showTicker ? item.symbol : 'MKT'}</span>
+            <span class="news-meta">${escapeHtml(item.source || 'Source')}<span class="sep">&middot;</span>${formatRelDate(item.publishedAt || item.date)}<span class="sep">&middot;</span><span class="news-sent-label ${cls}">${sentLabel}</span></span>
+            <span class="news-actions">
+              <button type="button" class="news-act${item.saved ? ' saved' : ''}" data-news-save="${item.id}" aria-label="Save">${ICON_BOOKMARK}</button>
+              ${url ? `<a class="news-act" data-news-stop href="${url}" target="_blank" rel="noopener noreferrer" aria-label="Open">${ICON_OPEN}</a>` : ''}
+            </span>
+          </div>
+          <p class="news-headline">${escapeHtml(item.title)}</p>
+        </div>
+      </article>`;
+    }).join("");
+  } else if (!news.length) {
+    feedHtml = empty("Refresh Intel to pull headlines from The Block, CoinDesk, Cointelegraph, Yahoo Finance, and your tickers.");
+  } else if (filter === "saved") {
+    feedHtml = empty("No saved stories yet. Tap the bookmark on any story to save it.");
+  } else if (filter === "unread") {
+    feedHtml = empty("All caught up \u2014 every story has been read.");
+  } else if (state.newsTickerFilter) {
+    feedHtml = empty(`No stories for ${state.newsTickerFilter} in this view.`);
+  } else {
+    feedHtml = empty("No stories match this filter.");
+  }
+  document.getElementById("newsFeed").innerHTML = feedHtml;
+
+  // --- Footer ---
+  const footerEl = document.getElementById("newsFooter");
+  if (footerEl) {
+    if (news.length) {
+      footerEl.hidden = false;
+      const unread = news.filter(n => !n.read).length;
+      const saved = news.filter(n => n.saved).length;
+      const drillLabel = state.newsTickerFilter ? `Filtered by ${state.newsTickerFilter} \u00b7 <button type="button" id="newsClearTickerBtn">Clear</button>` : "";
+      footerEl.innerHTML = `<span><span class="news-foot-num">${unread}</span> unread &middot; <span class="news-foot-num">${saved}</span> saved${drillLabel ? ` &middot; ${drillLabel}` : ''}</span><button type="button" id="newsMarkAllBtn">Mark all read</button>`;
+    } else {
+      footerEl.hidden = true;
+      footerEl.innerHTML = "";
+    }
+  }
 }
 
 
@@ -1720,7 +1902,17 @@ async function refreshNews() {
     try {
       const symbols = state.assets.filter(a => a.marketDataLinked !== false && a.type !== "cash" && a.type !== "other").map(a => a.marketDataSymbol || a.symbol).join(",");
       const result = await apiRequest(`market.php?type=news&sources=all&symbols=${encodeURIComponent(symbols)}`, { method: "GET", headers: {} });
-      if (Array.isArray(result.news)) { state.news = result.news; setAuthMessage(result.provider ? `Intel refreshed via ${result.provider}.` : "Intel refreshed."); }
+      if (Array.isArray(result.news)) {
+        // Preserve read/saved state across refreshes by URL (server hands out fresh
+        // random IDs each fetch, so we re-key on the canonical content URL).
+        const oldByKey = new Map((state.news || []).map(n => [n.url || n.title, n]));
+        state.news = result.news.map(n => {
+          const key = n.url || n.title;
+          const old = oldByKey.get(key);
+          return { ...n, read: !!(old && old.read), saved: !!(old && old.saved) };
+        });
+        setAuthMessage(result.provider ? `Intel refreshed via ${result.provider}.` : "Intel refreshed.");
+      }
     } catch (e) { setAuthMessage(e.message); }
     return;
   }
@@ -1730,7 +1922,13 @@ async function refreshNews() {
     const url = `https://www.alphavantage.co/query?function=NEWS_SENTIMENT&tickers=${encodeURIComponent(tickers)}&apikey=${encodeURIComponent(state.apiKey)}`;
     const result = await fetch(url).then(r => r.json());
     if (Array.isArray(result.feed)) {
-      state.news = result.feed.slice(0, 25).map(item => ({ id: uid(), symbol: item.ticker_sentiment?.[0]?.ticker || "MKT", title: item.title, source: item.source || "Alpha Vantage", sourceKey: "alphavantage", url: item.url || "", date: String(item.time_published || todayISO()).slice(0, 8).replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3"), sentiment: item.overall_sentiment_label || "Neutral" }));
+      const oldByKey = new Map((state.news || []).map(n => [n.url || n.title, n]));
+      state.news = result.feed.slice(0, 25).map(item => {
+        const url = item.url || "";
+        const old = oldByKey.get(url || item.title);
+        const base = { id: uid(), symbol: item.ticker_sentiment?.[0]?.ticker || "MKT", title: item.title, source: item.source || "Alpha Vantage", sourceKey: "alphavantage", url, date: String(item.time_published || todayISO()).slice(0, 8).replace(/(\d{4})(\d{2})(\d{2})/, "$1-$2-$3"), sentiment: item.overall_sentiment_label || "Neutral" };
+        return { ...base, read: !!(old && old.read), saved: !!(old && old.saved) };
+      });
     }
   } catch { alert("News refresh failed. Check the API key, rate limit, or browser network permissions."); }
 }
@@ -1788,7 +1986,45 @@ document.addEventListener("click", event => {
   }
 
   const newsFilter = event.target.closest("[data-news-filter]")?.dataset.newsFilter;
-  if (newsFilter) { state.newsFilter = newsFilter; render(); }
+  if (newsFilter) { state.newsFilter = newsFilter; state.newsTickerFilter = null; render(); }
+  // News ticker drilldown (trending pill / coverage map row click)
+  const newsTicker = event.target.closest("[data-news-ticker]")?.dataset.newsTicker;
+  if (newsTicker) {
+    event.preventDefault();
+    state.newsTickerFilter = state.newsTickerFilter === newsTicker ? null : newsTicker;
+    render();
+    return;
+  }
+  // External link inside a news row — let the default <a> behavior run, do not toggle read.
+  if (event.target.closest("[data-news-stop]")) return;
+  // Save / bookmark toggle on a news item
+  const newsSaveId = event.target.closest("[data-news-save]")?.dataset.newsSave;
+  if (newsSaveId) {
+    event.preventDefault();
+    event.stopPropagation();
+    const target = (state.news || []).find(n => n.id === newsSaveId);
+    if (target) { target.saved = !target.saved; render(); }
+    return;
+  }
+  // Clicking anywhere else on a news row marks it as read (and is the future expand-preview surface).
+  const newsRow = event.target.closest(".news-item, .news-hero-card");
+  if (newsRow) {
+    const id = newsRow.dataset.newsId;
+    const target = (state.news || []).find(n => n.id === id);
+    if (target && !target.read) { target.read = true; render(); }
+    return;
+  }
+  // Footer actions
+  if (event.target.closest("#newsMarkAllBtn")) {
+    (state.news || []).forEach(n => { n.read = true; });
+    render();
+    return;
+  }
+  if (event.target.closest("#newsClearTickerBtn")) {
+    state.newsTickerFilter = null;
+    render();
+    return;
+  }
   const symbol = event.target.closest("[data-select-asset]")?.dataset.selectAsset;
   if (symbol) { state.selectedSymbol = symbol; render(); }
   const editAsset = event.target.closest("[data-edit-asset]")?.dataset.editAsset;

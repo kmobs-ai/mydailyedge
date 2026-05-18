@@ -18,7 +18,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@300;400;500&family=Syne:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js" defer></script>
-  <link rel="stylesheet" href="styles.css?v=0.4.0">
+  <link rel="stylesheet" href="styles.css?v=0.4.1">
 </head>
 <body>
   <div class="shell">
@@ -231,8 +231,8 @@
       <section class="view" id="intelView" aria-labelledby="intelTitle">
         <div class="split-layout intel-layout">
           <aside class="panel compact-panel">
-            <div class="panel-head"><span class="sec-label">Watchlist</span><span class="sec-badge" id="watchCount">0</span></div>
-            <div id="watchList" class="nav-list"></div>
+            <div class="panel-head"><span class="sec-label">Coverage map</span><span class="sec-badge" id="coverageCount">0</span></div>
+            <div id="coverageMap" class="coverage-map"></div>
             <div class="panel-stats">
               <button class="btn btn-primary full" id="refreshNewsBtn">Refresh Intel</button>
             </div>
@@ -241,17 +241,22 @@
             <div class="workspace-head">
               <div>
                 <p class="hero-eyebrow">News from your positions and the wider market</p>
-                <h1 class="section-title" id="intelTitle">Market News</h1>
+                <h1 class="section-title" id="intelTitle">Market intelligence</h1>
               </div>
             </div>
+            <div class="news-hero" id="newsHero" hidden></div>
+            <div class="news-trending" id="newsTrending" hidden></div>
             <div class="list-toolbar news-toolbar">
               <button class="filter-tab active" data-news-filter="all">All</button>
               <button class="filter-tab" data-news-filter="portfolio">Portfolio</button>
               <button class="filter-tab" data-news-filter="crypto">Crypto</button>
               <button class="filter-tab" data-news-filter="markets">Markets</button>
               <button class="filter-tab" data-news-filter="research">Research</button>
+              <button class="filter-tab" data-news-filter="saved">Saved <span class="filter-ct" id="newsSavedCt">0</span></button>
+              <button class="filter-tab" data-news-filter="unread">Unread <span class="filter-ct" id="newsUnreadCt">0</span></button>
             </div>
             <div class="news-feed" id="newsFeed"></div>
+            <div class="news-footer" id="newsFooter" hidden></div>
           </section>
         </div>
       </section>
@@ -527,7 +532,7 @@
   </div>
 
   <!-- portfolio-math.js MUST load before app.js — app.js reads PortfolioMath.DEMO_SYMBOLS / DEFAULT_PROFILE at top-level. -->
-  <script src="lib/portfolio-math.js?v=0.4.0"></script>
-  <script src="app.js?v=0.4.0"></script>
+  <script src="lib/portfolio-math.js?v=0.4.1"></script>
+  <script src="app.js?v=0.4.1"></script>
 </body>
 </html>
