@@ -4,7 +4,7 @@
 // Lightweight error reporter — POSTs uncaught exceptions to api/log.php.
 // Per-session capped at 5 reports so a single broken loop doesn't spam.
 // =========================
-const APP_VERSION = "0.4.1";
+const APP_VERSION = "0.4.2";
 let _errorReportCount = 0;
 function reportFrontendError(kind, message, extras = {}) {
   if (_errorReportCount >= 5) return;
@@ -853,14 +853,9 @@ function renderPortfolio() {
       <span class="sep">&middot;</span>
       <span class="${port.gainPct >= 0 ? "up" : "dn"}">${pct(port.gainPct)}</span>`;
   }
-  document.getElementById("portfolioSummary").innerHTML = `
-    <div class="summary-value">${money(port.value)}</div>
-    <div class="summary-row">
-      <div class="summary-stat"><strong class="${port.dayPnl >= 0 ? "up" : "dn"}">${money(port.dayPnl)}</strong><span>Today P&L</span></div>
-      <div class="summary-stat"><strong class="${port.dayPct >= 0 ? "up" : "dn"}">${pct(port.dayPct)}</strong><span>Day return</span></div>
-      <div class="summary-stat"><strong class="${port.gain >= 0 ? "up" : "dn"}">${money(port.gain)}</strong><span>All-time P&L</span></div>
-    </div>
-    <div class="alloc-stack">${allocationPieces(port)}</div>`;
+  // Value + day/total P&L now live in the new #portfolioHead at the top of the view.
+  // Keep only the allocation stack here so the sidebar still shows the per-position weight bar.
+  document.getElementById("portfolioSummary").innerHTML = `<div class="alloc-stack">${allocationPieces(port)}</div>`;
   // Position row: per-share current price is the headline (matches what users see in their broker app);
   // day-% lives in the sub-meta beside shares and total position value.
   document.getElementById("positionList").innerHTML = posCount ? port.positions.sort((a, b) => b.value - a.value).map(pos => `
@@ -1137,6 +1132,27 @@ function newsSentimentClass(sentiment) {
   return "neu";
 }
 
+// Client-side keyword classifier — mirrors classify_sentiment() in api/market.php.
+// Used as a fallback so news items cached before the server-side classifier deployed
+// still show a real sentiment immediately instead of stuck at "Neutral" until refresh.
+const NEWS_NEGATIVE_WORDS = ["miss","missed","misses","missing","cut","cuts","cutting","downgrade","downgrades","downgraded","underperform","underperforming","plunge","plunges","plunged","plunging","tumble","tumbles","tumbled","tumbling","fall","falls","fell","drop","drops","dropped","dropping","decline","declines","declined","declining","warning","concern","concerns","bubble","mania","crash","crashes","crashed","halt","halts","halted","investigation","lawsuit","fraud","bearish","sell-off","selloff","collapse","collapses","collapsed","bankrupt","bankruptcy","recession","slowdown","weak","weaker","weakest","sinking","sink","sinks","sank","sliding","slide","slides","slid","loss","losses","losing","slump","slumps","slumped","worry","worries","worried","risk","risks","risky","threat","threats","threatens","threatened"];
+const NEWS_POSITIVE_WORDS = ["beat","beats","beating","beaten","rally","rallies","rallying","rallied","surge","surges","surging","surged","soar","soars","soaring","soared","raises","raised","raising","upgrade","upgrades","upgraded","outperform","outperforming","outperformed","strong","strongest","stronger","gain","gains","gaining","gained","record","breakout","breakouts","jumps","jumped","jumping","leaps","leaped","leaping","tops","topped","topping","positive","bullish","momentum","optimistic","optimism","growth","expand","expands","expanding","expanded","expansion","accelerate","accelerates","accelerating","accelerated","boost","boosts","boosted","boosting","rebound","rebounds","rebounded","rebounding","recovery","recovered","recovering","breakthrough"];
+function clientClassifyTitle(title) {
+  const t = String(title || "").toLowerCase();
+  if (!t) return "Neutral";
+  for (const w of NEWS_NEGATIVE_WORDS) { if (t.indexOf(w) !== -1) return "Negative"; }
+  for (const w of NEWS_POSITIVE_WORDS) { if (t.indexOf(w) !== -1) return "Positive"; }
+  return "Neutral";
+}
+// Authoritative news sentiment: trust the server's label if it's strong, otherwise
+// re-classify the title client-side. Means a cached pre-deploy item still shows a
+// useful color bar instead of being stuck at Neutral until the user clicks Refresh.
+function getNewsSentiment(item) {
+  const serverCls = newsSentimentClass(item && item.sentiment);
+  if (serverCls !== "neu") return serverCls;
+  return newsSentimentClass(clientClassifyTitle(item && item.title));
+}
+
 function escapeHtml(s) { return String(s || "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"})[c]); }
 
 function formatRelDate(s) {
@@ -1167,7 +1183,7 @@ function pickNewsHero(news) {
     String(b.publishedAt || b.date || "").localeCompare(String(a.publishedAt || a.date || ""))
   );
   return (
-    sorted.find(n => tickers.has(n.symbol) && newsSentimentClass(n.sentiment) !== "neu") ||
+    sorted.find(n => tickers.has(n.symbol) && getNewsSentiment(n) !== "neu") ||
     sorted.find(n => tickers.has(n.symbol)) ||
     sorted[0]
   );
@@ -1188,7 +1204,7 @@ function renderIntel() {
     if (!tickerStats.has(tk)) tickerStats.set(tk, { count: 0, pos: 0, neu: 0, neg: 0 });
     const s = tickerStats.get(tk);
     s.count++;
-    const cls = newsSentimentClass(n.sentiment);
+    const cls = getNewsSentiment(n);
     if (cls === "pos") s.pos++; else if (cls === "neg") s.neg++; else s.neu++;
   });
 
@@ -1205,11 +1221,12 @@ function renderIntel() {
       const posPct = (c.pos / total) * 100;
       const neuPct = (c.neu / total) * 100;
       const negPct = (c.neg / total) * 100;
-      const lean = c.count === 0 ? "no stories yet" : c.pos > c.neg ? "lean positive" : c.neg > c.pos ? "lean negative" : "mixed";
+      const lean = c.pos > c.neg ? "lean positive" : c.neg > c.pos ? "lean negative" : "mixed";
       const isActive = state.newsTickerFilter === c.symbol;
+      const midText = c.count === 0 ? "No coverage yet" : `${c.count} stor${c.count === 1 ? 'y' : 'ies'} &middot; ${lean}`;
       return `<div class="coverage-row${isActive ? ' active' : ''}" data-news-ticker="${c.symbol}">
         <div class="coverage-top"><span class="coverage-sym">${c.symbol}</span><span class="coverage-chg mono ${c.dayChangePct >= 0 ? 'up' : 'dn'}">${pct(c.dayChangePct)}</span></div>
-        <div class="coverage-mid">${c.count} stor${c.count === 1 ? 'y' : 'ies'} &middot; ${lean}</div>
+        <div class="coverage-mid">${midText}</div>
         <div class="coverage-bar"><span class="neg" style="width:${negPct}%"></span><span class="neu" style="width:${neuPct}%"></span><span class="pos" style="width:${posPct}%"></span></div>
       </div>`;
     }).join("") : empty("Add positions to build coverage.");
@@ -1246,11 +1263,12 @@ function renderIntel() {
   if (heroEl) {
     const hero = pickNewsHero(news);
     if (hero && !state.newsTickerFilter && filter === "all") {
-      const cls = newsSentimentClass(hero.sentiment);
-      const tagLabel = cls === "pos" ? "Strong signal" : cls === "neg" ? "Caution signal" : "Top story";
+      const cls = getNewsSentiment(hero);
+      const signalLabel = cls === "pos" ? "Strong signal" : cls === "neg" ? "Caution signal" : null;
+      const tagText = ["Top story", signalLabel, (hero.symbol && hero.symbol !== "MKT") ? hero.symbol : null].filter(Boolean).join(" &middot; ");
       heroEl.hidden = false;
       heroEl.innerHTML = `<div class="news-hero-card ${cls} ${hero.read ? 'read' : ''}" data-news-id="${hero.id}">
-        <div class="news-hero-tag">Top story &middot; ${tagLabel}${hero.symbol && hero.symbol !== 'MKT' ? ` &middot; ${hero.symbol}` : ''}</div>
+        <div class="news-hero-tag">${tagText}</div>
         <h3 class="news-hero-headline">${escapeHtml(hero.title)}</h3>
         <div class="news-hero-foot">
           <span>${escapeHtml(hero.source || 'Source')}</span><span class="sep">&middot;</span>
@@ -1271,7 +1289,7 @@ function renderIntel() {
   let feedHtml;
   if (filtered.length) {
     feedHtml = filtered.map(item => {
-      const cls = newsSentimentClass(item.sentiment);
+      const cls = getNewsSentiment(item);
       const sentLabel = cls === "pos" ? "Positive" : cls === "neg" ? "Negative" : "Neutral";
       const showTicker = item.symbol && item.symbol !== "MKT";
       const url = cleanUrl(item.url);
