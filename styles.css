@@ -1328,3 +1328,145 @@ textarea { resize: vertical; min-height: 78px; }
   .news-item { padding: 10px 12px; }
   .news-footer { padding: 10px 12px; }
 }
+
+/* =========================================================================
+ * Shared section redesign (Tasks / Alerts / History / Overview)
+ * Hero card + sub-line + item color bars + footer.
+ * Same visual idioms as the News redesign so the system reads as one app.
+ * ========================================================================= */
+.section-sub { font-family: var(--mono); font-size: 11px; color: var(--muted); letter-spacing: 0.04em; margin: 6px 0 0; }
+.section-hero { padding: 0 18px; }
+.section-hero-card {
+  background: var(--ink2);
+  border: 0.5px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  padding: 14px 16px 12px;
+  margin: 6px 0 14px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.section-hero-card:hover { background: var(--ink3); }
+.section-hero-card.up, .section-hero-card.pos { border-left-color: var(--green); }
+.section-hero-card.dn, .section-hero-card.neg { border-left-color: var(--red); }
+.section-hero-card.warn { border-left-color: #c9a04d; }
+.section-hero-card.neu { border-left-color: var(--accent); }
+.section-hero-tag {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+.section-hero-card.up .section-hero-tag, .section-hero-card.pos .section-hero-tag { color: var(--green); }
+.section-hero-card.dn .section-hero-tag, .section-hero-card.neg .section-hero-tag { color: var(--red); }
+.section-hero-card.warn .section-hero-tag { color: #c9a04d; }
+.section-hero-headline {
+  font-family: var(--serif);
+  font-size: 19px;
+  font-weight: 500;
+  color: var(--bright);
+  line-height: 1.3;
+  margin: 0 0 6px;
+  letter-spacing: -0.005em;
+}
+.section-hero-headline-mono { font-family: var(--mono); letter-spacing: 0.005em; }
+.section-hero-lede {
+  font-size: 12.5px;
+  color: var(--sub);
+  margin: 0 0 8px;
+  line-height: 1.5;
+}
+.section-hero-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  flex-wrap: wrap;
+}
+.section-hero-foot .sep { color: var(--dim); }
+.section-hero-foot .grow { flex: 1; }
+
+/* Item bar (priority / status / P&L direction stripe on the left of list rows) */
+.item-bar-row { position: relative; padding-left: 14px !important; }
+.item-bar {
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 3px;
+  border-radius: 1px;
+}
+.item-bar.bar-hi { background: var(--red); }
+.item-bar.bar-md { background: #c9a04d; }
+.item-bar.bar-lo { background: var(--muted); }
+.item-bar.bar-up, .item-bar.bar-pos { background: var(--green); }
+.item-bar.bar-dn, .item-bar.bar-neg { background: var(--red); }
+.item-bar.bar-neu { background: var(--muted); }
+
+/* Compact row inner layout (used by Alerts + History rows) */
+.item-content { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
+.item-top { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.item-tk {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+  min-width: 38px;
+}
+.item-name { font-size: 12.5px; color: var(--text); flex: 1; min-width: 0; }
+.item-price { font-family: var(--mono); font-size: 12px; color: var(--bright); font-weight: 500; }
+.item-sub {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  flex-wrap: wrap;
+}
+.item-sub .sep { color: var(--dim); margin: 0; }
+.item-title { font-size: 13px; color: var(--text); line-height: 1.4; }
+
+/* Task row — checkbox sits between the bar and the content. */
+.task-row { display: grid !important; grid-template-columns: 24px 1fr; gap: 10px; align-items: start; }
+.task-row.done .item-title { text-decoration: line-through; color: var(--dim); }
+.task-row.done { opacity: 0.7; }
+
+/* Section footer — running counts + one action, same idiom as news-footer. */
+.section-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 18px;
+  border-top: 0.5px solid var(--line);
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+.section-footer button {
+  background: transparent; border: none; padding: 0;
+  font-family: inherit; font-size: inherit; letter-spacing: inherit;
+  color: var(--accent); cursor: pointer;
+}
+.section-footer button:hover { color: var(--bright); }
+
+/* History — section-level header above the split-layout */
+.history-head { padding: 18px 24px 8px; border-bottom: 1px solid var(--line); }
+.history-head .hero-eyebrow { margin: 0; }
+.history-head .section-title { margin: 4px 0 0; }
+
+@media (max-width: 780px) {
+  .section-hero { padding: 0 12px; }
+  .section-hero-card { padding: 12px 14px; margin: 4px 0 12px; }
+  .section-hero-headline { font-size: 16px; }
+  .section-footer { padding: 10px 12px; }
+  .history-head { padding: 14px 16px 8px; }
+}

@@ -18,7 +18,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@300;400;500&family=Syne:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js" defer></script>
-  <link rel="stylesheet" href="styles.css?v=0.4.2">
+  <link rel="stylesheet" href="styles.css?v=0.4.3">
 </head>
 <body>
   <div class="shell">
@@ -71,6 +71,7 @@
           </div>
         </div>
 
+        <div class="section-hero" id="overviewSpotlight" hidden></div>
         <div class="hero-summary" id="overviewSummary"></div>
 
         <section class="overview-perf">
@@ -217,12 +218,24 @@
             <div class="panel-stats" id="taskStats"></div>
           </aside>
           <section class="workspace">
+            <div class="workspace-head">
+              <div>
+                <p class="hero-eyebrow" id="tasksEyebrow">Your operating list</p>
+                <h1 class="section-title" id="tasksTitle">Tasks</h1>
+                <p class="section-sub" id="tasksSub"></p>
+              </div>
+            </div>
+            <div class="section-hero" id="tasksHero" hidden></div>
             <div class="list-toolbar">
-              <button class="filter-tab" data-task-filter="high">High Priority</button>
-              <button class="filter-tab" id="taskShowDoneToggle" type="button">Show completed</button>
+              <button class="filter-tab active" data-task-filter="all">All <span class="filter-ct" id="taskCtAll">0</span></button>
+              <button class="filter-tab" data-task-filter="high">High <span class="filter-ct" id="taskCtHigh">0</span></button>
+              <button class="filter-tab" data-task-filter="medium">Medium <span class="filter-ct" id="taskCtMed">0</span></button>
+              <button class="filter-tab" data-task-filter="low">Low <span class="filter-ct" id="taskCtLow">0</span></button>
+              <button class="filter-tab" data-task-filter="done">Done <span class="filter-ct" id="taskCtDone">0</span></button>
               <button class="btn btn-primary" data-open-modal="taskModal">Add Task</button>
             </div>
             <div class="list-scroll" id="taskList"></div>
+            <div class="section-footer" id="tasksFooter" hidden></div>
           </section>
           <aside class="panel" id="taskDetail"></aside>
         </div>
@@ -278,29 +291,39 @@
           <section class="workspace">
             <div class="workspace-head">
               <div>
-                <p class="hero-eyebrow">Price thresholds checked every 15 minutes</p>
+                <p class="hero-eyebrow" id="alertsEyebrow">Watching for moves</p>
                 <h1 class="section-title" id="alertsTitle">Price Alerts</h1>
+                <p class="section-sub" id="alertsSub"></p>
               </div>
             </div>
+            <div class="section-hero" id="alertsHero" hidden></div>
             <div class="list-toolbar">
-              <button class="filter-tab active" data-alert-filter="active">Active</button>
-              <button class="filter-tab" data-alert-filter="triggered">Triggered</button>
-              <button class="filter-tab" data-alert-filter="paused">Paused</button>
-              <button class="filter-tab" data-alert-filter="all">All</button>
+              <button class="filter-tab active" data-alert-filter="active">Active <span class="filter-ct" id="alertCtActive">0</span></button>
+              <button class="filter-tab" data-alert-filter="triggered">Triggered <span class="filter-ct" id="alertCtTrig">0</span></button>
+              <button class="filter-tab" data-alert-filter="paused">Paused <span class="filter-ct" id="alertCtPaused">0</span></button>
+              <button class="filter-tab" data-alert-filter="all">All <span class="filter-ct" id="alertCtAll">0</span></button>
               <button class="btn btn-primary" data-open-modal="alertModal">Add Alert</button>
             </div>
             <div class="list-scroll" id="alertsList"></div>
+            <div class="section-footer" id="alertsFooter" hidden></div>
           </section>
         </div>
       </section>
 
 
       <section class="view" id="historyView" aria-labelledby="historyTitle">
+        <div class="history-head">
+          <p class="hero-eyebrow" id="historyEyebrow">Portfolio over time</p>
+          <h1 class="section-title" id="historyTitle">History</h1>
+          <p class="section-sub" id="historySub"></p>
+        </div>
+        <div class="section-hero" id="historyHero" hidden></div>
         <div class="split-layout history-layout">
           <aside class="panel compact-panel">
             <div class="panel-head"><span class="sec-label">Snapshots</span><span class="sec-badge" id="historyCount">0</span></div>
             <div class="toolbar-row"><button class="btn btn-primary full" id="historySnapshotBtn">Capture Today</button></div>
             <div class="position-list" id="historyList"></div>
+            <div class="section-footer" id="historyFooter" hidden></div>
           </aside>
           <section class="workspace" id="historyDetail"></section>
         </div>
@@ -532,7 +555,7 @@
   </div>
 
   <!-- portfolio-math.js MUST load before app.js — app.js reads PortfolioMath.DEMO_SYMBOLS / DEFAULT_PROFILE at top-level. -->
-  <script src="lib/portfolio-math.js?v=0.4.2"></script>
-  <script src="app.js?v=0.4.2"></script>
+  <script src="lib/portfolio-math.js?v=0.4.3"></script>
+  <script src="app.js?v=0.4.3"></script>
 </body>
 </html>

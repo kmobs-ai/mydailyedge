@@ -4,7 +4,7 @@
 // Lightweight error reporter — POSTs uncaught exceptions to api/log.php.
 // Per-session capped at 5 reports so a single broken loop doesn't spam.
 // =========================
-const APP_VERSION = "0.4.2";
+const APP_VERSION = "0.4.3";
 let _errorReportCount = 0;
 function reportFrontendError(kind, message, extras = {}) {
   if (_errorReportCount >= 5) return;
@@ -797,11 +797,59 @@ function renderMovers(positions) {
     ${losers.map(bar).join("")}`;
 }
 
+// Overview "Today's spotlight" — the single most consequential thing about the
+// portfolio right now. Prefer a freshly triggered alert; otherwise the biggest
+// percentage mover; otherwise nothing.
+function pickOverviewSpotlight(port) {
+  const fresh = (alertsCache || []).filter(a => a.status === "triggered" && a.triggeredAt && (Date.now() - new Date(a.triggeredAt).getTime()) < 1000 * 60 * 60 * 24);
+  if (fresh.length) {
+    const a = fresh.slice().sort((x, y) => String(y.triggeredAt).localeCompare(String(x.triggeredAt)))[0];
+    return { kind: "alert", alert: a };
+  }
+  const positions = (port.positions || []).filter(p => p.quantity > 0 && Number.isFinite(p.dayChangePct));
+  if (!positions.length) return null;
+  const biggest = positions.slice().sort((a, b) => Math.abs(b.dayChangePct) - Math.abs(a.dayChangePct))[0];
+  if (!biggest || Math.abs(biggest.dayChangePct) < 0.5) return null; // skip if nothing moved
+  return { kind: "mover", position: biggest };
+}
+
 function renderOverview() {
   const port = portfolio();
   const openTasks = state.tasks.filter(t => !t.done);
   const todayTasks = openTasks.filter(t => t.due && t.due <= todayISO());
   document.getElementById("dailyBrief").textContent = `${port.dayPnl >= 0 ? "Portfolio is higher" : "Portfolio is lower"} today with ${todayTasks.length} time-sensitive tasks and ${state.news.length} intel items in the queue.`;
+
+  // Spotlight card
+  const spotEl = document.getElementById("overviewSpotlight");
+  if (spotEl) {
+    const pick = pickOverviewSpotlight(port);
+    if (pick && pick.kind === "alert") {
+      const a = pick.alert;
+      spotEl.hidden = false;
+      spotEl.innerHTML = `<div class="section-hero-card dn" data-tab="alerts">
+        <div class="section-hero-tag">Alert triggered · ${a.symbol} · ${a.triggeredAt ? a.triggeredAt.replace("T", " ").slice(0, 16) : "just now"}</div>
+        <h3 class="section-hero-headline">${escapeHtml(describeCondition(a))}</h3>
+        <p class="section-hero-lede">${a.triggeredPrice ? `Hit ${money2(Number(a.triggeredPrice))}. ` : ""}Open Alerts to dismiss or pause.</p>
+        <div class="section-hero-foot"><span>${a.notifyEmail ? "Email sent" : ""}${a.notifyEmail && a.notifyPush ? " · " : ""}${a.notifyPush ? "Push delivered" : ""}</span><span class="grow"></span><span>Tap to review →</span></div>
+      </div>`;
+    } else if (pick && pick.kind === "mover") {
+      const p = pick.position;
+      const sideCls = p.dayChangePct >= 0 ? "up" : "dn";
+      const sign = p.dayChangePct >= 0 ? "+" : "";
+      const port_value_share = port.value ? (p.value / port.value * 100) : 0;
+      spotEl.hidden = false;
+      spotEl.innerHTML = `<div class="section-hero-card ${sideCls}" data-select-asset="${p.symbol}" data-tab="portfolio">
+        <div class="section-hero-tag">Spotlight · Biggest mover · <span class="${sideCls}">${sign}${pct(p.dayChangePct).replace("+","").replace("-","")}</span></div>
+        <h3 class="section-hero-headline">${p.symbol} · ${money2(Number(p.price || 0))}</h3>
+        <p class="section-hero-lede">${escapeHtml(p.name || p.symbol)} · ${port_value_share.toFixed(1)}% of portfolio${p.targetWeight ? ` (target ${p.targetWeight}%)` : ""}.</p>
+        <div class="section-hero-foot"><span class="${sideCls}">${sign}${money(p.dayChangePct / 100 * (p.previousClose || p.price || 0) * (p.quantity || 0))} today</span><span class="grow"></span><span>Open position →</span></div>
+      </div>`;
+    } else {
+      spotEl.hidden = true;
+      spotEl.innerHTML = "";
+    }
+  }
+
   document.getElementById("overviewSummary").innerHTML = [
     metric("Portfolio Value", money(port.value), `${pct(port.dayPct)} today`, port.dayPnl >= 0 ? "up" : "dn", "sparkValue"),
     metric("Invested Capital", money(port.cost), `${money(port.gain)} total P&L`, port.gain >= 0 ? "up" : "dn", "sparkInvested"),
@@ -1070,28 +1118,149 @@ function renderChart(port, selected) {
   }
 }
 
+// Priority -> color class used by .item-bar and .filter-ct
+function taskPriorityClass(p) {
+  const v = String(p || "Medium").toLowerCase();
+  if (v === "high") return "hi";
+  if (v === "low") return "lo";
+  return "md";
+}
+
+// Pick the most urgent open task to spotlight in the section hero.
+// Order of preference: overdue+high -> overdue -> due-today+high -> due-today
+// -> high priority -> any open task.
+function pickTaskHero(tasks) {
+  const open = tasks.filter(t => !t.done);
+  if (!open.length) return null;
+  const today = todayISO();
+  const overdue = open.filter(t => t.due && t.due < today);
+  const overdueHi = overdue.find(t => t.priority === "High");
+  if (overdueHi) return { task: overdueHi, urgency: "overdue" };
+  if (overdue.length) return { task: overdue.sort((a,b) => String(a.due).localeCompare(String(b.due)))[0], urgency: "overdue" };
+  const dueToday = open.filter(t => t.due === today);
+  const dueTodayHi = dueToday.find(t => t.priority === "High");
+  if (dueTodayHi) return { task: dueTodayHi, urgency: "due-today" };
+  if (dueToday.length) return { task: dueToday[0], urgency: "due-today" };
+  const hi = open.find(t => t.priority === "High");
+  if (hi) return { task: hi, urgency: "high" };
+  return { task: open[0], urgency: "open" };
+}
+
 function renderTasks() {
-  const openCount = state.tasks.filter(t => !t.done).length;
-  const highCount = state.tasks.filter(t => !t.done && t.priority === "High").length;
-  const doneCount = state.tasks.filter(t => t.done).length;
-  document.getElementById("taskCount").textContent = String(openCount);
-  document.getElementById("taskFilters").innerHTML = `
-    <div class="nav-item ${state.taskFilter === "high" ? "active" : ""}" data-task-filter="high">
-      <span class="nav-name">High Priority</span><span class="nav-count">${highCount}</span>
-    </div>`;
-  document.getElementById("taskStats").innerHTML = `
-    <div class="db-row"><span>Open</span><span>${openCount}</span></div>
+  const all = state.tasks || [];
+  const openTasks = all.filter(t => !t.done);
+  const doneTasks = all.filter(t => t.done);
+  const today = todayISO();
+  const overdueCount = openTasks.filter(t => t.due && t.due < today).length;
+  const dueTodayCount = openTasks.filter(t => t.due === today).length;
+  const highCount = openTasks.filter(t => t.priority === "High").length;
+  const mediumCount = openTasks.filter(t => t.priority === "Medium").length;
+  const lowCount = openTasks.filter(t => t.priority === "Low").length;
+  const filter = state.taskFilter || "all";
+
+  // Section identity strip (eyebrow + title already in HTML; only sub-line updates).
+  const subEl = document.getElementById("tasksSub");
+  if (subEl) {
+    const subParts = [`${openTasks.length} open`];
+    if (dueTodayCount) subParts.push(`${dueTodayCount} due today`);
+    if (overdueCount) subParts.push(`${overdueCount} overdue`);
+    if (doneTasks.length) subParts.push(`${doneTasks.length} done`);
+    subEl.textContent = subParts.join(" · ");
+  }
+  const cnt = document.getElementById("taskCount"); if (cnt) cnt.textContent = String(openTasks.length);
+
+  // Hero — most urgent open task.
+  const heroEl = document.getElementById("tasksHero");
+  const heroPick = pickTaskHero(all);
+  if (heroEl) {
+    if (heroPick) {
+      const t = heroPick.task;
+      const pCls = taskPriorityClass(t.priority);
+      const tagLabel = heroPick.urgency === "overdue" ? "Overdue" : heroPick.urgency === "due-today" ? "Due today" : t.priority === "High" ? "High priority" : "Up next";
+      const sideCls = pCls === "hi" ? "dn" : pCls === "md" ? "warn" : "neu";
+      const tagParts = ["Up next", tagLabel === "Up next" ? null : tagLabel, t.priority ? `${t.priority} priority` : null].filter(Boolean).join(" · ");
+      heroEl.hidden = false;
+      heroEl.innerHTML = `<div class="section-hero-card ${sideCls}" data-select-task="${t.id}">
+        <div class="section-hero-tag">${tagParts}</div>
+        <h3 class="section-hero-headline">${t.title}</h3>
+        <p class="section-hero-lede">${t.notes ? escapeHtml(t.notes) : (t.symbol ? `Linked to ${t.symbol}.` : "Tag a decision or block of work to clear today.")}</p>
+        <div class="section-hero-foot">
+          <span>${t.priority || "Medium"} priority</span>
+          ${t.symbol ? `<span class="sep">·</span><span>${t.symbol}</span>` : ""}
+          ${t.due ? `<span class="sep">·</span><span>Due ${t.due}${t.due < today ? " (overdue)" : t.due === today ? " (today)" : ""}</span>` : ""}
+          <span class="grow"></span>
+          <button type="button" class="news-act" data-toggle-task="${t.id}" aria-label="Mark done"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg></button>
+        </div>
+      </div>`;
+    } else {
+      heroEl.hidden = true;
+      heroEl.innerHTML = "";
+    }
+  }
+
+  // Filter pill counts + active state.
+  const setCt = (id, n) => { const e = document.getElementById(id); if (e) e.textContent = String(n); };
+  setCt("taskCtAll", openTasks.length);
+  setCt("taskCtHigh", highCount);
+  setCt("taskCtMed", mediumCount);
+  setCt("taskCtLow", lowCount);
+  setCt("taskCtDone", doneTasks.length);
+  document.querySelectorAll("[data-task-filter]").forEach(b => b.classList.toggle("active", b.dataset.taskFilter === filter));
+
+  // Optional left-rail panel still gets stats (kept for backwards compat with old HTML).
+  const stats = document.getElementById("taskStats");
+  if (stats) stats.innerHTML = `
+    <div class="db-row"><span>Open</span><span>${openTasks.length}</span></div>
     <div class="db-row"><span>High priority</span><span class="accent">${highCount}</span></div>
-    <div class="db-row"><span>Completed</span><span class="green">${doneCount}</span></div>`;
-  document.querySelectorAll("[data-task-filter]").forEach(b => b.classList.toggle("active", b.dataset.taskFilter === state.taskFilter));
-  document.getElementById("taskList").innerHTML = filterTasks(state.taskFilter).sort((a, b) => Number(a.done) - Number(b.done) || String(a.due).localeCompare(String(b.due))).map(task => `<div class="list-row ${task.id === state.selectedTaskId ? "selected" : ""}" data-select-task="${task.id}"><button class="check ${task.done ? "done" : ""}" data-toggle-task="${task.id}" aria-label="Toggle task"></button><div><div class="${task.done ? "muted" : ""}">${task.title}</div><div class="row-meta"><span class="tag priority-${task.priority ? task.priority.toLowerCase() : "medium"}">${task.priority || "Medium"}</span><span class="mono muted">${task.due || "No due date"}</span><span class="mono ${task.priority === "High" ? "accent" : "muted"}">${task.priority}</span></div></div></div>`).join("") || empty("No tasks in this filter");
+    <div class="db-row"><span>Completed</span><span class="green">${doneTasks.length}</span></div>`;
+  const filters = document.getElementById("taskFilters");
+  if (filters) filters.innerHTML = `<div class="nav-item ${filter === "high" ? "active" : ""}" data-task-filter="high"><span class="nav-name">High Priority</span><span class="nav-count">${highCount}</span></div>`;
+
+  // List rows — priority color bar on the left, checkbox, title, sub-meta.
+  const filtered = filterTasks(filter).sort((a, b) =>
+    Number(!!a.done) - Number(!!b.done) || String(a.due || "9999").localeCompare(String(b.due || "9999"))
+  );
+  const list = document.getElementById("taskList");
+  if (list) {
+    list.innerHTML = filtered.length ? filtered.map(task => {
+      const pCls = taskPriorityClass(task.priority);
+      const dueOverdue = task.due && task.due < today && !task.done;
+      const dueLabel = task.due ? (dueOverdue ? `Overdue ${task.due}` : task.due === today ? "Due today" : `Due ${task.due}`) : "No due date";
+      const subBits = [dueLabel];
+      if (task.symbol) subBits.push(task.symbol);
+      if (task.priority) subBits.push(task.priority);
+      return `<div class="list-row item-bar-row task-row ${task.id === state.selectedTaskId ? "selected" : ""} ${task.done ? "done" : ""}" data-select-task="${task.id}">
+        <span class="item-bar bar-${pCls}"></span>
+        <button class="check ${task.done ? "done" : ""}" data-toggle-task="${task.id}" aria-label="Toggle task"></button>
+        <div class="item-content">
+          <div class="item-title">${task.title}</div>
+          <div class="item-sub">${subBits.map((b, i) => i === 0 ? `<span class="${dueOverdue ? 'dn' : ''}">${escapeHtml(b)}</span>` : `<span class="sep">·</span><span>${escapeHtml(b)}</span>`).join("")}</div>
+        </div>
+      </div>`;
+    }).join("") : empty(filter === "done" ? "No completed tasks yet." : "No tasks in this filter.");
+  }
+
+  // Footer — running counts and a Mark all done action.
+  const footer = document.getElementById("tasksFooter");
+  if (footer) {
+    if (all.length) {
+      footer.hidden = false;
+      footer.innerHTML = `<span><span class="news-foot-num">${openTasks.length}</span> open · <span class="news-foot-num">${doneTasks.length}</span> done</span>${openTasks.length ? `<button type="button" id="tasksMarkAllBtn">Mark all done</button>` : ""}`;
+    } else {
+      footer.hidden = true; footer.innerHTML = "";
+    }
+  }
+
   renderTaskDetail();
 }
 
 function filterTasks(filter) {
+  const open = state.tasks.filter(t => !t.done);
   if (filter === "done") return state.tasks.filter(t => t.done);
-  if (filter === "high") return state.tasks.filter(t => !t.done && t.priority === "High");
-  return state.tasks.filter(t => !t.done);
+  if (filter === "high") return open.filter(t => t.priority === "High");
+  if (filter === "medium" || filter === "med") return open.filter(t => t.priority === "Medium" || !t.priority);
+  if (filter === "low") return open.filter(t => t.priority === "Low");
+  return open; // "all" (default) = all open
 }
 
 function renderTaskDetail() {
@@ -1510,45 +1679,134 @@ function describeCondition(a) {
   return a.direction;
 }
 
-function renderAlerts() {
-  const filters = [["active", "Active"], ["triggered", "Triggered"], ["paused", "Paused"], ["all", "All"]];
-  const cnt = document.getElementById("alertCount");
-  const navEl = document.getElementById("alertFilters");
-  if (cnt) cnt.textContent = String(alertsCache.length);
-  if (navEl) navEl.innerHTML = filters.map(([id, label]) => `<div class="nav-item ${state.alertFilter === id ? "active" : ""}" data-alert-filter="${id}"><span class="nav-name">${label}</span><span class="nav-count">${filterAlerts(id).length}</span></div>`).join("");
-  document.querySelectorAll("[data-alert-filter]").forEach(b => b.classList.toggle("active", b.dataset.alertFilter === state.alertFilter));
+// Pick the alert to spotlight: most recent triggered (last 24h preferred), else
+// the imminent active one (closest current price to threshold), else first active.
+function pickAlertHero(alerts) {
+  if (!alerts.length) return null;
+  const triggered = alerts.filter(a => a.status === "triggered");
+  if (triggered.length) {
+    return triggered.slice().sort((a, b) => String(b.triggeredAt || "").localeCompare(String(a.triggeredAt || "")))[0];
+  }
+  const active = alerts.filter(a => a.status === "active");
+  if (!active.length) return alerts[0];
+  // Imminence = relative gap between current price and threshold (smaller = closer)
+  const withGap = active.map(a => {
+    const asset = (state.assets || []).find(s => s.symbol === a.symbol);
+    const cur = asset ? Number(asset.price || 0) : 0;
+    const thr = Number(a.threshold || 0);
+    const gap = cur > 0 && thr > 0 ? Math.abs(cur - thr) / cur : Infinity;
+    return { a, gap };
+  }).sort((x, y) => x.gap - y.gap);
+  return withGap[0].a;
+}
 
+function renderAlerts() {
+  const all = alertsCache || [];
+  const active = all.filter(a => a.status === "active");
+  const triggered = all.filter(a => a.status === "triggered");
+  const paused = all.filter(a => a.status === "paused");
+  const filter = state.alertFilter || "active";
+
+  // Identity strip
+  const subEl = document.getElementById("alertsSub");
+  if (subEl) {
+    const today = todayISO();
+    const trigToday = triggered.filter(a => String(a.triggeredAt || "").slice(0, 10) === today).length;
+    const parts = [`${active.length} active`];
+    parts.push(`${trigToday} triggered today`);
+    parts.push("evaluated every 15 min");
+    subEl.textContent = parts.join(" · ");
+  }
+  const cnt = document.getElementById("alertCount"); if (cnt) cnt.textContent = String(all.length);
+
+  // Hero
+  const heroEl = document.getElementById("alertsHero");
+  const hero = pickAlertHero(all);
+  if (heroEl) {
+    if (hero) {
+      const sideCls = hero.status === "triggered" ? "dn" : hero.status === "active" ? "up" : "neu";
+      const tagLabel = hero.status === "triggered" ? "Triggered" : hero.status === "active" ? "Imminent" : hero.status === "paused" ? "Paused" : "Watch";
+      const asset = (state.assets || []).find(s => s.symbol === hero.symbol);
+      const curPrice = asset ? Number(asset.price || 0) : null;
+      const stamp = hero.triggeredAt ? hero.triggeredAt.replace("T", " ").slice(0, 16) : hero.createdAt ? `Created ${String(hero.createdAt).slice(0, 10)}` : "";
+      heroEl.hidden = false;
+      heroEl.innerHTML = `<div class="section-hero-card ${sideCls}" data-alert-id="${hero.id}">
+        <div class="section-hero-tag">${tagLabel} · ${hero.symbol}${stamp ? " · " + escapeHtml(stamp) : ""}</div>
+        <h3 class="section-hero-headline">${escapeHtml(describeCondition(hero))}</h3>
+        <p class="section-hero-lede">${curPrice ? `Current ${money2(curPrice)}. Threshold ${money2(Number(hero.threshold || 0))}.` : `Threshold ${money2(Number(hero.threshold || 0))}.`}${hero.note ? ` ${escapeHtml(hero.note)}` : ""}</p>
+        <div class="section-hero-foot">
+          ${hero.notifyEmail ? `<span>Email</span>` : ""}${hero.notifyEmail && hero.notifyPush ? `<span class="sep">·</span>` : ""}${hero.notifyPush ? `<span>Push</span>` : ""}
+          <span class="grow"></span>
+          ${hero.status === "active" ? `<button class="news-act" data-alert-action="pause" data-alert-id="${hero.id}" aria-label="Pause"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg></button>` : ""}
+          ${hero.status === "triggered" ? `<button class="news-act" data-alert-action="acknowledge" data-alert-id="${hero.id}" aria-label="Dismiss"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>` : ""}
+        </div>
+      </div>`;
+    } else {
+      heroEl.hidden = true; heroEl.innerHTML = "";
+    }
+  }
+
+  // Filter pill counts + active state.
+  const setCt = (id, n) => { const e = document.getElementById(id); if (e) e.textContent = String(n); };
+  setCt("alertCtActive", active.length);
+  setCt("alertCtTrig", triggered.length);
+  setCt("alertCtPaused", paused.length);
+  setCt("alertCtAll", all.length);
+  document.querySelectorAll("[data-alert-filter]").forEach(b => b.classList.toggle("active", b.dataset.alertFilter === filter));
+
+  // Sidebar nav (legacy) still gets a populated list for compat.
+  const navEl = document.getElementById("alertFilters");
+  if (navEl) navEl.innerHTML = [["active","Active"],["triggered","Triggered"],["paused","Paused"],["all","All"]].map(([id, label]) => `<div class="nav-item ${filter === id ? "active" : ""}" data-alert-filter="${id}"><span class="nav-name">${label}</span><span class="nav-count">${filterAlerts(id).length}</span></div>`).join("");
+
+  // List rows — status color bar on the left, ticker, condition, sub-meta, actions.
   const list = document.getElementById("alertsList");
   if (!list) return;
-  const items = filterAlerts(state.alertFilter || "active");
+  const items = filterAlerts(filter);
   if (!items.length) {
-    list.innerHTML = empty(alertsCache.length ? "No alerts in this filter." : (auth.authenticated ? "No alerts yet. Click Add Alert to create one." : "Sign in to set price alerts."));
-    return;
-  }
-  list.innerHTML = items.map(a => `
-    <div class="alert-row ${a.status}">
-      <div>
-        <div class="alert-symbol">${a.symbol}</div>
-        <div class="alert-meta"><span class="alert-status-pill ${a.status}">${a.status}</span></div>
-      </div>
-      <div>
-        <div class="alert-condition">${describeCondition(a)}</div>
-        ${a.note ? `<div class="muted small">${a.note}</div>` : ""}
-        <div class="alert-meta">
-          ${a.notifyEmail ? '<span>Email</span>' : ""}
-          ${a.notifyPush ? '<span>Push</span>' : ""}
-          ${a.triggeredAt ? `<span>Hit ${money2(a.triggeredPrice || 0)} at ${a.triggeredAt.slice(0, 16).replace("T", " ")}</span>` : `<span>Created ${(a.createdAt || "").slice(0, 10)}</span>`}
+    list.innerHTML = empty(all.length ? "No alerts in this filter." : (auth.authenticated ? "No alerts yet. Click Add Alert to create one." : "Sign in to set price alerts."));
+  } else {
+    list.innerHTML = items.map(a => {
+      const sideCls = a.status === "triggered" ? "dn" : a.status === "active" ? "up" : "neu";
+      const stamp = a.triggeredAt ? `Triggered ${a.triggeredAt.replace("T", " ").slice(0, 16)}` : a.createdAt ? `Created ${String(a.createdAt).slice(0, 10)}` : "";
+      const asset = (state.assets || []).find(s => s.symbol === a.symbol);
+      const curPrice = asset ? Number(asset.price || 0) : null;
+      return `<div class="alert-row item-bar-row status-${a.status}">
+        <span class="item-bar bar-${sideCls}"></span>
+        <div class="item-content">
+          <div class="item-top">
+            <span class="item-tk">${a.symbol}</span>
+            <span class="item-name">${escapeHtml(describeCondition(a))}</span>
+            <span class="item-price">${curPrice ? money2(curPrice) : money2(Number(a.threshold || 0))}</span>
+          </div>
+          <div class="item-sub">
+            <span class="alert-status-pill ${a.status}">${a.status}</span>
+            ${a.notifyEmail ? `<span class="sep">·</span><span>Email</span>` : ""}
+            ${a.notifyPush ? `<span class="sep">·</span><span>Push</span>` : ""}
+            ${stamp ? `<span class="sep">·</span><span>${escapeHtml(stamp)}</span>` : ""}
+            ${a.note ? `<span class="sep">·</span><span>${escapeHtml(a.note)}</span>` : ""}
+          </div>
         </div>
-      </div>
-      <div class="alert-actions">
-        ${a.status === "active" ? `<button class="btn btn-ghost" data-alert-action="pause" data-alert-id="${a.id}">Pause</button>` : ""}
-        ${a.status === "paused" ? `<button class="btn btn-ghost" data-alert-action="resume" data-alert-id="${a.id}">Resume</button>` : ""}
-        ${a.status === "triggered" ? `<button class="btn btn-ghost" data-alert-action="acknowledge" data-alert-id="${a.id}">Dismiss</button>` : ""}
-        ${a.status === "triggered" || a.status === "dismissed" ? `<button class="btn btn-ghost" data-alert-action="reset" data-alert-id="${a.id}">Reset</button>` : ""}
-        <button class="btn btn-danger" data-alert-action="delete" data-alert-id="${a.id}">Delete</button>
-      </div>
-    </div>
-  `).join("");
+        <div class="alert-actions">
+          ${a.status === "active" ? `<button class="btn btn-ghost" data-alert-action="pause" data-alert-id="${a.id}">Pause</button>` : ""}
+          ${a.status === "paused" ? `<button class="btn btn-ghost" data-alert-action="resume" data-alert-id="${a.id}">Resume</button>` : ""}
+          ${a.status === "triggered" ? `<button class="btn btn-ghost" data-alert-action="acknowledge" data-alert-id="${a.id}">Dismiss</button>` : ""}
+          ${a.status === "triggered" || a.status === "dismissed" ? `<button class="btn btn-ghost" data-alert-action="reset" data-alert-id="${a.id}">Reset</button>` : ""}
+          <button class="btn btn-danger" data-alert-action="delete" data-alert-id="${a.id}">Delete</button>
+        </div>
+      </div>`;
+    }).join("");
+  }
+
+  // Footer
+  const footer = document.getElementById("alertsFooter");
+  if (footer) {
+    if (all.length) {
+      footer.hidden = false;
+      footer.innerHTML = `<span><span class="news-foot-num">${active.length}</span> active · <span class="news-foot-num">${triggered.length}</span> triggered</span>${active.length ? `<button type="button" id="alertsPauseAllBtn">Pause all</button>` : ""}`;
+    } else {
+      footer.hidden = true; footer.innerHTML = "";
+    }
+  }
 }
 
 async function handleAlertAction(action, id) {
@@ -1607,13 +1865,86 @@ function renderProfile() {
 }
 
 function renderHistory() {
-  const snaps = snapshotsCache.length ? snapshotsCache : state.snapshots;
-  document.getElementById("historyCount").textContent = String(snaps.length);
-  document.getElementById("historyList").innerHTML = snaps.map(snap => `<div class="snapshot-row ${snap.id === state.selectedSnapshotId ? "active" : ""}" data-select-snapshot="${snap.id}"><div><div>${snap.title}</div><div class="muted mono">${snap.date}</div></div><div class="price-block"><div class="mono">${money(snap.portfolio.value)}</div><div class="mono ${snap.portfolio.dayPnl >= 0 ? "up" : "dn"}">${pct(snap.portfolio.dayPct)}</div></div></div>`).join("") || empty("Snapshots are taken automatically once a day after market close. Capture Today to record one manually.");
+  const snaps = (snapshotsCache && snapshotsCache.length) ? snapshotsCache : (state.snapshots || []);
+  const cnt = document.getElementById("historyCount"); if (cnt) cnt.textContent = String(snaps.length);
+
+  // Identity strip
+  const subEl = document.getElementById("historySub");
+  if (subEl) {
+    if (snaps.length) {
+      const earliest = snaps.slice().sort((a, b) => String(a.date).localeCompare(String(b.date)))[0];
+      subEl.textContent = `${snaps.length} snapshot${snaps.length === 1 ? "" : "s"} since ${earliest.date} · captured daily`;
+    } else {
+      subEl.textContent = "No snapshots yet · captured daily after market close";
+    }
+  }
+
+  // Hero — latest snapshot summary.
+  const heroEl = document.getElementById("historyHero");
+  if (heroEl) {
+    const latest = snaps.slice().sort((a, b) => String(b.date).localeCompare(String(a.date)))[0];
+    if (latest) {
+      const sideCls = latest.portfolio.dayPnl >= 0 ? "up" : "dn";
+      const totalCls = latest.portfolio.gain >= 0 ? "up" : "dn";
+      const daySign = latest.portfolio.dayPnl >= 0 ? "+" : "";
+      const totalSign = latest.portfolio.gain >= 0 ? "+" : "";
+      heroEl.hidden = false;
+      heroEl.innerHTML = `<div class="section-hero-card ${sideCls}" data-select-snapshot="${latest.id}">
+        <div class="section-hero-tag">Latest snapshot · ${latest.date}</div>
+        <h3 class="section-hero-headline section-hero-headline-mono">${money2(latest.portfolio.value)} · <span class="${sideCls}">${pct(latest.portfolio.dayPct)}</span></h3>
+        <p class="section-hero-lede"><span class="${sideCls}">${daySign}${money(latest.portfolio.dayPnl)} day</span> · <span class="${totalCls}">${totalSign}${money(latest.portfolio.gain)} total unrealized</span></p>
+        <div class="section-hero-foot">
+          <span>${(latest.tasks && latest.tasks.open) || 0} task${(latest.tasks && latest.tasks.open) === 1 ? "" : "s"} open</span>
+          ${(latest.tasks && latest.tasks.due) ? `<span class="sep">·</span><span class="dn">${latest.tasks.due} due</span>` : ""}
+        </div>
+      </div>`;
+    } else {
+      heroEl.hidden = true; heroEl.innerHTML = "";
+    }
+  }
+
+  // List rows — P&L-direction color bar on the left.
+  const list = document.getElementById("historyList");
+  if (list) {
+    list.innerHTML = snaps.length ? snaps.map(snap => {
+      const sideCls = (snap.portfolio.dayPnl || 0) >= 0 ? "up" : "dn";
+      const d = new Date(`${snap.date}T00:00:00`);
+      const dow = isNaN(d.getTime()) ? "" : d.toLocaleDateString([], { weekday: "short" }).toUpperCase();
+      const pnlSign = (snap.portfolio.dayPnl || 0) >= 0 ? "+" : "";
+      return `<div class="snapshot-row item-bar-row ${snap.id === state.selectedSnapshotId ? "selected" : ""}" data-select-snapshot="${snap.id}">
+        <span class="item-bar bar-${sideCls}"></span>
+        <div class="item-content">
+          <div class="item-top">
+            <span class="item-tk">${dow}</span>
+            <span class="item-name">${escapeHtml(snap.title || snap.date)}</span>
+            <span class="item-price">${money(snap.portfolio.value)}</span>
+          </div>
+          <div class="item-sub">
+            <span class="${sideCls}">${pnlSign}${money(snap.portfolio.dayPnl)} (${pct(snap.portfolio.dayPct)})</span>
+            ${snap.tasks && snap.tasks.open ? `<span class="sep">·</span><span>${snap.tasks.open} task${snap.tasks.open === 1 ? "" : "s"}</span>` : ""}
+          </div>
+        </div>
+      </div>`;
+    }).join("") : empty("Snapshots are taken automatically once a day after market close. Capture Today to record one manually.");
+  }
+
+  // Footer
+  const footer = document.getElementById("historyFooter");
+  if (footer) {
+    if (snaps.length) {
+      footer.hidden = false;
+      footer.innerHTML = `<span><span class="news-foot-num">${snaps.length}</span> snapshot${snaps.length === 1 ? "" : "s"}</span>`;
+    } else {
+      footer.hidden = true; footer.innerHTML = "";
+    }
+  }
+
+  // Detail panel (unchanged behavior; preserves the existing report card).
   const snap = snaps.find(s => s.id === state.selectedSnapshotId) || snaps[0];
   const node = document.getElementById("historyDetail");
-  if (!snap) { node.innerHTML = `<div class="report"><h1 id="historyTitle">History</h1><p class="muted">Capture a snapshot to store daily portfolio value, open tasks, active ideas, and a short report.</p></div>`; return; }
-  node.innerHTML = `<article class="report"><h1>${snap.title}</h1><div class="report-grid">${metric("Value", money(snap.portfolio.value), "Portfolio")}${metric("Today", money(snap.portfolio.dayPnl), pct(snap.portfolio.dayPct), snap.portfolio.dayPnl >= 0 ? "green" : "red")}${metric("Total P&L", money(snap.portfolio.gain), pct(snap.portfolio.gainPct), snap.portfolio.gain >= 0 ? "green" : "red")}${metric("Open Tasks", snap.tasks.open, `${snap.tasks.due} due`, "")}</div><section class="report-section"><h2>Daily Report</h2><p>${snap.report}</p></section><section class="report-section"><h2>Positions</h2>${snap.positions.map(pos => `<div class="db-row"><span>${pos.symbol}</span><span>${money(pos.value)} | ${pct(pos.dayChangePct)}</span></div>`).join("")}</section></article>`;
+  if (!node) return;
+  if (!snap) { node.innerHTML = `<div class="report"><p class="muted">Capture a snapshot to store daily portfolio value, open tasks, and a short report.</p></div>`; return; }
+  node.innerHTML = `<article class="report"><h1>${snap.title || snap.date}</h1><div class="report-grid">${metric("Value", money(snap.portfolio.value), "Portfolio")}${metric("Today", money(snap.portfolio.dayPnl), pct(snap.portfolio.dayPct), snap.portfolio.dayPnl >= 0 ? "green" : "red")}${metric("Total P&L", money(snap.portfolio.gain), pct(snap.portfolio.gainPct), snap.portfolio.gain >= 0 ? "green" : "red")}${metric("Open Tasks", (snap.tasks && snap.tasks.open) || 0, `${(snap.tasks && snap.tasks.due) || 0} due`, "")}</div><section class="report-section"><h2>Daily Report</h2><p>${snap.report || ""}</p></section><section class="report-section"><h2>Positions</h2>${(snap.positions || []).map(pos => `<div class="db-row"><span>${pos.symbol}</span><span>${money(pos.value)} | ${pct(pos.dayChangePct)}</span></div>`).join("")}</section></article>`;
 }
 
 function captureSnapshot() {
@@ -2036,6 +2367,23 @@ document.addEventListener("click", event => {
   if (event.target.closest("#newsMarkAllBtn")) {
     (state.news || []).forEach(n => { n.read = true; });
     render();
+    return;
+  }
+  // Tasks: Mark all done
+  if (event.target.closest("#tasksMarkAllBtn")) {
+    (state.tasks || []).forEach(t => { t.done = true; });
+    render();
+    return;
+  }
+  // Alerts: Pause all active
+  if (event.target.closest("#alertsPauseAllBtn")) {
+    (async () => {
+      const active = (alertsCache || []).filter(a => a.status === "active");
+      for (const a of active) {
+        try { await apiRequest("alerts.php", { method: "POST", body: JSON.stringify({ action: "pause", id: a.id }) }); } catch {}
+      }
+      await loadAlerts(); render();
+    })();
     return;
   }
   if (event.target.closest("#newsClearTickerBtn")) {
