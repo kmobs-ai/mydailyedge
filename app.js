@@ -4,7 +4,7 @@
 // Lightweight error reporter — POSTs uncaught exceptions to api/log.php.
 // Per-session capped at 5 reports so a single broken loop doesn't spam.
 // =========================
-const APP_VERSION = "0.4.3";
+const APP_VERSION = "0.4.4";
 let _errorReportCount = 0;
 function reportFrontendError(kind, message, extras = {}) {
   if (_errorReportCount >= 5) return;
@@ -839,7 +839,7 @@ function renderOverview() {
       const port_value_share = port.value ? (p.value / port.value * 100) : 0;
       spotEl.hidden = false;
       spotEl.innerHTML = `<div class="section-hero-card ${sideCls}" data-select-asset="${p.symbol}" data-tab="portfolio">
-        <div class="section-hero-tag">Spotlight · Biggest mover · <span class="${sideCls}">${sign}${pct(p.dayChangePct).replace("+","").replace("-","")}</span></div>
+        <div class="section-hero-tag">Spotlight · Biggest mover · <span class="${sideCls}">${pct(p.dayChangePct)}</span></div>
         <h3 class="section-hero-headline">${p.symbol} · ${money2(Number(p.price || 0))}</h3>
         <p class="section-hero-lede">${escapeHtml(p.name || p.symbol)} · ${port_value_share.toFixed(1)}% of portfolio${p.targetWeight ? ` (target ${p.targetWeight}%)` : ""}.</p>
         <div class="section-hero-foot"><span class="${sideCls}">${sign}${money(p.dayChangePct / 100 * (p.previousClose || p.price || 0) * (p.quantity || 0))} today</span><span class="grow"></span><span>Open position →</span></div>
@@ -1276,9 +1276,9 @@ function filterNews() {
   const tickers = new Set(state.assets.map(a => a.symbol).filter(Boolean));
   const cryptoTickers = new Set(["BTC","ETH","SOL","ADA","XRP","DOGE","AVAX","LINK","LTC","BCH"]);
   return (state.news || []).filter(item => {
-    if (tickerFilter && String(item.symbol || "").toUpperCase() !== tickerFilter) return false;
+    if (tickerFilter && effectiveNewsSymbol(item) !== tickerFilter) return false;
     if (filter === "all") return true;
-    if (filter === "portfolio") return tickers.has(item.symbol);
+    if (filter === "portfolio") return tickers.has(effectiveNewsSymbol(item));
     if (filter === "crypto") return ["theblock","coindesk","cointelegraph"].includes(item.sourceKey || "") || (item.category || "").toLowerCase() === "crypto" || cryptoTickers.has(String(item.symbol).toUpperCase());
     if (filter === "markets") return (item.category || "").toLowerCase() === "markets" || item.sourceKey === "yahoo";
     if (filter === "research") { const s = String(item.sentiment || "").toLowerCase(); return s !== "neutral" && s !== ""; }
@@ -1345,6 +1345,25 @@ const ICON_OPEN = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" s
 
 // Pick the most consequential story to spotlight: prefer recent + strong-signal
 // items on portfolio tickers, fall back to first portfolio story, then first story.
+// Yahoo's per-ticker RSS tags every story in a ticker's feed with that ticker,
+// even when the story is unrelated (INTC's feed returns generic market stories).
+// Only honor the attribution when the headline actually references the symbol
+// (whole word) or the company's distinctive name; otherwise treat as general
+// market news ("MKT"). Keeps the coverage map + trending counts honest.
+function effectiveNewsSymbol(item) {
+  const sym = String((item && item.symbol) || "MKT").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (!sym || sym === "MKT") return "MKT";
+  const title = String((item && item.title) || "").toUpperCase();
+  if (!title) return "MKT";
+  if (new RegExp(`\\b${sym}\\b`).test(title)) return item.symbol;
+  const asset = (state.assets || []).find(a => String(a.symbol).toUpperCase() === sym);
+  if (asset && asset.name) {
+    const namePart = (asset.name.split(/[\s,.]+/)[0] || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+    if (namePart.length >= 5 && title.includes(namePart)) return item.symbol;
+  }
+  return "MKT";
+}
+
 function pickNewsHero(news) {
   if (!news.length) return null;
   const tickers = new Set(state.assets.map(a => a.symbol));
@@ -1352,8 +1371,8 @@ function pickNewsHero(news) {
     String(b.publishedAt || b.date || "").localeCompare(String(a.publishedAt || a.date || ""))
   );
   return (
-    sorted.find(n => tickers.has(n.symbol) && getNewsSentiment(n) !== "neu") ||
-    sorted.find(n => tickers.has(n.symbol)) ||
+    sorted.find(n => tickers.has(effectiveNewsSymbol(n)) && getNewsSentiment(n) !== "neu") ||
+    sorted.find(n => tickers.has(effectiveNewsSymbol(n))) ||
     sorted[0]
   );
 }
@@ -1369,7 +1388,7 @@ function renderIntel() {
   // --- Per-ticker stats: story count + sentiment proportions ---
   const tickerStats = new Map();
   news.forEach(n => {
-    const tk = String(n.symbol || "MKT").toUpperCase();
+    const tk = effectiveNewsSymbol(n);
     if (!tickerStats.has(tk)) tickerStats.set(tk, { count: 0, pos: 0, neu: 0, neg: 0 });
     const s = tickerStats.get(tk);
     s.count++;
@@ -1434,7 +1453,8 @@ function renderIntel() {
     if (hero && !state.newsTickerFilter && filter === "all") {
       const cls = getNewsSentiment(hero);
       const signalLabel = cls === "pos" ? "Strong signal" : cls === "neg" ? "Caution signal" : null;
-      const tagText = ["Top story", signalLabel, (hero.symbol && hero.symbol !== "MKT") ? hero.symbol : null].filter(Boolean).join(" &middot; ");
+      const heroSym = effectiveNewsSymbol(hero);
+      const tagText = ["Top story", signalLabel, heroSym !== "MKT" ? heroSym : null].filter(Boolean).join(" &middot; ");
       heroEl.hidden = false;
       heroEl.innerHTML = `<div class="news-hero-card ${cls} ${hero.read ? 'read' : ''}" data-news-id="${hero.id}">
         <div class="news-hero-tag">${tagText}</div>
@@ -1460,13 +1480,14 @@ function renderIntel() {
     feedHtml = filtered.map(item => {
       const cls = getNewsSentiment(item);
       const sentLabel = cls === "pos" ? "Positive" : cls === "neg" ? "Negative" : "Neutral";
-      const showTicker = item.symbol && item.symbol !== "MKT";
+      const effSym = effectiveNewsSymbol(item);
+      const showTicker = effSym !== "MKT";
       const url = cleanUrl(item.url);
       return `<article class="news-item ${item.read ? 'read' : ''}" data-news-id="${item.id}">
         <span class="news-sent-bar ${cls}"></span>
         <div class="news-content">
           <div class="news-top">
-            <span class="news-tk ${showTicker ? '' : 'mkt'}">${showTicker ? item.symbol : 'MKT'}</span>
+            <span class="news-tk ${showTicker ? '' : 'mkt'}">${showTicker ? effSym : 'MKT'}</span>
             <span class="news-meta">${escapeHtml(item.source || 'Source')}<span class="sep">&middot;</span>${formatRelDate(item.publishedAt || item.date)}<span class="sep">&middot;</span><span class="news-sent-label ${cls}">${sentLabel}</span></span>
             <span class="news-actions">
               <button type="button" class="news-act${item.saved ? ' saved' : ''}" data-news-save="${item.id}" aria-label="Save">${ICON_BOOKMARK}</button>
@@ -1688,7 +1709,7 @@ function pickAlertHero(alerts) {
     return triggered.slice().sort((a, b) => String(b.triggeredAt || "").localeCompare(String(a.triggeredAt || "")))[0];
   }
   const active = alerts.filter(a => a.status === "active");
-  if (!active.length) return alerts[0];
+  if (!active.length) return null; // nothing active or triggered -> no spotlight worth showing
   // Imminence = relative gap between current price and threshold (smaller = closer)
   const withGap = active.map(a => {
     const asset = (state.assets || []).find(s => s.symbol === a.symbol);
@@ -1748,9 +1769,9 @@ function renderAlerts() {
 
   // Filter pill counts + active state.
   const setCt = (id, n) => { const e = document.getElementById(id); if (e) e.textContent = String(n); };
-  setCt("alertCtActive", active.length);
-  setCt("alertCtTrig", triggered.length);
-  setCt("alertCtPaused", paused.length);
+  setCt("alertCtActive", filterAlerts("active").length);
+  setCt("alertCtTrig", filterAlerts("triggered").length);
+  setCt("alertCtPaused", filterAlerts("paused").length);
   setCt("alertCtAll", all.length);
   document.querySelectorAll("[data-alert-filter]").forEach(b => b.classList.toggle("active", b.dataset.alertFilter === filter));
 
@@ -1802,7 +1823,8 @@ function renderAlerts() {
   if (footer) {
     if (all.length) {
       footer.hidden = false;
-      footer.innerHTML = `<span><span class="news-foot-num">${active.length}</span> active · <span class="news-foot-num">${triggered.length}</span> triggered</span>${active.length ? `<button type="button" id="alertsPauseAllBtn">Pause all</button>` : ""}`;
+      const trigCount = filterAlerts("triggered").length;
+      footer.innerHTML = `<span><span class="news-foot-num">${active.length}</span> active · <span class="news-foot-num">${trigCount}</span> triggered</span>${active.length ? `<button type="button" id="alertsPauseAllBtn">Pause all</button>` : ""}`;
     } else {
       footer.hidden = true; footer.innerHTML = "";
     }
