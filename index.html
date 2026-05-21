@@ -18,7 +18,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@300;400;500&family=Syne:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js" defer></script>
-  <link rel="stylesheet" href="styles.css?v=0.4.6">
+  <link rel="stylesheet" href="styles.css?v=0.4.7">
 </head>
 <body>
   <div class="shell">
@@ -254,6 +254,7 @@
             </div>
             <div class="news-hero" id="newsHero" hidden></div>
             <div class="news-trending" id="newsTrending" hidden></div>
+            <div class="coverage-map coverage-inline" id="coverageMapInline"></div>
             <div class="list-toolbar news-toolbar">
               <button class="filter-tab active" data-news-filter="all">All</button>
               <button class="filter-tab" data-news-filter="portfolio">Portfolio</button>
@@ -550,7 +551,7 @@
   </div>
 
   <!-- portfolio-math.js MUST load before app.js — app.js reads PortfolioMath.DEMO_SYMBOLS / DEFAULT_PROFILE at top-level. -->
-  <script src="lib/portfolio-math.js?v=0.4.6"></script>
-  <script src="app.js?v=0.4.6"></script>
+  <script src="lib/portfolio-math.js?v=0.4.7"></script>
+  <script src="app.js?v=0.4.7"></script>
 </body>
 </html>

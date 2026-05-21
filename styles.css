@@ -1482,13 +1482,26 @@ textarea { resize: vertical; min-height: 78px; }
  * Also render the coverage map as the compact horizontal-scroll strip the
  * mockup showed, instead of a tall vertical list at the bottom.
  * ========================================================================= */
+/* Inline coverage strip is hidden on desktop (the left sidebar shows it there). */
+.coverage-inline { display: none; }
+
 @media (max-width: 780px) {
+  /* News + Alerts (.intel-layout): lead with the workspace, not the sidebar. */
   .intel-layout > .workspace { order: -1; }
+  /* News: surface coverage inline (right after the trending pills) instead of
+     the desktop sidebar, so it sits near the top rather than below the feed.
+     Hide the sidebar's coverage list + its header; the Refresh Intel button
+     stays in the sidebar (which now collapses below the feed). */
+  #intelView .compact-panel .coverage-map,
+  #intelView .compact-panel .panel-head { display: none; }
+  .coverage-inline { display: flex; }
+  /* Compact horizontal-scroll card strip (applies to the inline coverage). */
   .intel-layout .coverage-map {
     flex-direction: row;
     overflow-x: auto;
     gap: 8px;
-    padding: 10px 12px;
+    padding: 10px 12px 12px;
+    margin: 0 -2px;
     -webkit-overflow-scrolling: touch;
   }
   .intel-layout .coverage-map::-webkit-scrollbar { height: 4px; }

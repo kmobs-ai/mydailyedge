@@ -4,7 +4,7 @@
 // Lightweight error reporter — POSTs uncaught exceptions to api/log.php.
 // Per-session capped at 5 reports so a single broken loop doesn't spam.
 // =========================
-const APP_VERSION = "0.4.6";
+const APP_VERSION = "0.4.7";
 let _errorReportCount = 0;
 function reportFrontendError(kind, message, extras = {}) {
   if (_errorReportCount >= 5) return;
@@ -1407,23 +1407,25 @@ function renderIntel() {
     return { symbol: p.symbol, dayChangePct: p.dayChangePct, ...stats };
   });
   const coverageCount = document.getElementById("coverageCount"); if (coverageCount) coverageCount.textContent = String(coverageList.length);
-  const coverageMap = document.getElementById("coverageMap");
-  if (coverageMap) {
-    coverageMap.innerHTML = coverageList.length ? coverageList.map(c => {
-      const total = c.count || 1;
-      const posPct = (c.pos / total) * 100;
-      const neuPct = (c.neu / total) * 100;
-      const negPct = (c.neg / total) * 100;
-      const lean = c.pos > c.neg ? "lean positive" : c.neg > c.pos ? "lean negative" : "mixed";
-      const isActive = state.newsTickerFilter === c.symbol;
-      const midText = c.count === 0 ? "No coverage yet" : `${c.count} stor${c.count === 1 ? 'y' : 'ies'} &middot; ${lean}`;
-      return `<div class="coverage-row${isActive ? ' active' : ''}" data-news-ticker="${c.symbol}">
+  // Build coverage HTML once, render into BOTH the desktop sidebar (#coverageMap)
+  // and the mobile inline strip (#coverageMapInline, shown only <=780px so the
+  // coverage sits right after the trending pills instead of below the feed).
+  const coverageHtml = coverageList.length ? coverageList.map(c => {
+    const total = c.count || 1;
+    const posPct = (c.pos / total) * 100;
+    const neuPct = (c.neu / total) * 100;
+    const negPct = (c.neg / total) * 100;
+    const lean = c.pos > c.neg ? "lean positive" : c.neg > c.pos ? "lean negative" : "mixed";
+    const isActive = state.newsTickerFilter === c.symbol;
+    const midText = c.count === 0 ? "No coverage yet" : `${c.count} stor${c.count === 1 ? 'y' : 'ies'} &middot; ${lean}`;
+    return `<div class="coverage-row${isActive ? ' active' : ''}" data-news-ticker="${c.symbol}">
         <div class="coverage-top"><span class="coverage-sym">${c.symbol}</span><span class="coverage-chg mono ${c.dayChangePct >= 0 ? 'up' : 'dn'}">${pct(c.dayChangePct)}</span></div>
         <div class="coverage-mid">${midText}</div>
         <div class="coverage-bar"><span class="neg" style="width:${negPct}%"></span><span class="neu" style="width:${neuPct}%"></span><span class="pos" style="width:${posPct}%"></span></div>
       </div>`;
-    }).join("") : empty("Add positions to build coverage.");
-  }
+  }).join("") : empty("Add positions to build coverage.");
+  const coverageMap = document.getElementById("coverageMap"); if (coverageMap) coverageMap.innerHTML = coverageHtml;
+  const coverageMapInline = document.getElementById("coverageMapInline"); if (coverageMapInline) coverageMapInline.innerHTML = coverageHtml;
 
   // --- Trending tickers strip (top 6 by story count, excluding MKT) ---
   const trending = Array.from(tickerStats.entries())
