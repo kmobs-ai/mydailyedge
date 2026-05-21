@@ -97,6 +97,7 @@ img, svg { max-width: 100%; }
 
 .split-layout { display: grid; min-height: calc(100vh - 52px); grid-template-columns: 340px 1fr; }
 .three-col { grid-template-columns: 230px 1fr 330px; }
+.tasks-layout { grid-template-columns: 1fr 330px; }
 .portfolio-layout { grid-template-columns: 410px 1fr; }
 .intel-layout { grid-template-columns: 260px 1fr; }
 .history-layout { grid-template-columns: 330px 1fr; }
@@ -284,7 +285,7 @@ textarea { resize: vertical; min-height: 78px; }
   .hero-summary, .overview-grid, .detail-grid, .report-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .overview-grid { grid-template-areas: none; }
   .cell-portfolio, .cell-movers, .cell-allocation, .cell-heatmap, .cell-today, .cell-news, .cell-history { grid-area: auto; }
-  .split-layout, .three-col, .portfolio-layout, .intel-layout, .history-layout, .profile-layout { grid-template-columns: 1fr; }
+  .split-layout, .three-col, .tasks-layout, .portfolio-layout, .intel-layout, .history-layout, .profile-layout { grid-template-columns: 1fr; }
   .panel { border-right: 0; border-bottom: 1px solid var(--line); }
   .profile-side { border-left: 0; }
   .workspace, .compact-panel { min-height: auto; }

@@ -4,7 +4,7 @@
 // Lightweight error reporter — POSTs uncaught exceptions to api/log.php.
 // Per-session capped at 5 reports so a single broken loop doesn't spam.
 // =========================
-const APP_VERSION = "0.4.4";
+const APP_VERSION = "0.4.5";
 let _errorReportCount = 0;
 function reportFrontendError(kind, message, extras = {}) {
   if (_errorReportCount >= 5) return;
@@ -872,7 +872,12 @@ function metric(label, value, sub, tone = "", sparkId = "") {
   const spark = sparkId ? `<svg id="${sparkId}" class="metric-spark" preserveAspectRatio="none" viewBox="0 0 100 28"></svg>` : "";
   return `<div class="metric"><div class="metric-label">${label}</div><div class="metric-value ${tone}">${value}</div>${spark}<div class="metric-sub">${sub}</div></div>`;
 }
-function positionMini(pos, total) { const w = total ? (pos.value / total) * 100 : 0; return `<div class="position-item" data-select-asset="${pos.symbol}"><div class="row-top"><div><div class="ticker">${pos.symbol}</div><div class="asset-name">${pos.name}</div></div><div class="price-block"><div class="mono">${money(pos.value)}</div><div class="mono ${pos.dayChangePct >= 0 ? "up" : "dn"}">${pct(pos.dayChangePct)}</div></div></div><div class="alloc-track"><div class="alloc-fill" style="width:${Math.min(100, w)}%;background:${pos.color}"></div></div></div>`; }
+function positionMini(pos, total) {
+  const w = total ? (pos.value / total) * 100 : 0;
+  const dirCls = pos.dayChangePct >= 0 ? "up" : "dn";
+  // Price-led headline (matches the Portfolio tab); value + day-% move to the meta line.
+  return `<div class="position-item" data-select-asset="${pos.symbol}"><div class="row-top"><div><div class="ticker">${pos.symbol}</div><div class="asset-name">${pos.name}</div></div><div class="price-block"><div class="mono">${money2(pos.price)}</div></div></div><div class="row-meta"><span class="muted mono">${money(pos.value)} val</span><span class="mono ${dirCls}">${pct(pos.dayChangePct)} today</span></div><div class="alloc-track"><div class="alloc-fill" style="width:${Math.min(100, w)}%;background:${pos.color}"></div></div></div>`;
+}
 function compactRow(title, meta, tone = "") { return `<div class="activity-row"><div><div>${title}</div><div class="muted mono">${meta}</div></div><span class="dot ${tone === "green" || tone === "committed" ? "green" : "accent"}"></span></div>`; }
 function newsMini(item, index) { return `<div class="activity-row"><span class="news-num">${String(index + 1).padStart(2, "0")}</span><div><div>${item.title}</div><div class="muted mono">${item.symbol} | ${item.source} | ${item.date}</div></div></div>`; }
 function empty(text) { return `<div class="empty">${text}</div>`; }
