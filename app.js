@@ -4,7 +4,7 @@
 // Lightweight error reporter — POSTs uncaught exceptions to api/log.php.
 // Per-session capped at 5 reports so a single broken loop doesn't spam.
 // =========================
-const APP_VERSION = "0.4.5";
+const APP_VERSION = "0.4.6";
 let _errorReportCount = 0;
 function reportFrontendError(kind, message, extras = {}) {
   if (_errorReportCount >= 5) return;

@@ -1471,3 +1471,27 @@ textarea { resize: vertical; min-height: 78px; }
   .section-footer { padding: 10px 12px; }
   .history-head { padding: 14px 16px 8px; }
 }
+
+/* =========================================================================
+ * Mobile layout order fix (v0.4.6)
+ * News + Alerts share .intel-layout, whose DOM order is sidebar-then-workspace.
+ * On desktop that's correct (left rail). On mobile the grid collapses to one
+ * column in source order, which stacked the coverage map / alert filters ABOVE
+ * the page title + hero — contradicting the mobile mockups, where the hero
+ * leads. Reorder so the workspace comes first; the secondary sidebar follows.
+ * Also render the coverage map as the compact horizontal-scroll strip the
+ * mockup showed, instead of a tall vertical list at the bottom.
+ * ========================================================================= */
+@media (max-width: 780px) {
+  .intel-layout > .workspace { order: -1; }
+  .intel-layout .coverage-map {
+    flex-direction: row;
+    overflow-x: auto;
+    gap: 8px;
+    padding: 10px 12px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .intel-layout .coverage-map::-webkit-scrollbar { height: 4px; }
+  .intel-layout .coverage-map::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 2px; }
+  .intel-layout .coverage-row { flex: 0 0 auto; min-width: 152px; }
+}
